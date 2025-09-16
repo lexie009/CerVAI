@@ -1,0 +1,6 @@
+strategy: "entropymc"
+sampling_params:
+  num_inferences: 8
+  use_dropout: true
+  uncertainty_metric: "JSD"
+  alpha: 0.5

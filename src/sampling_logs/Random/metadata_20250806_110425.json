@@ -1,0 +1,6 @@
+{
+  "strategy": "Random",
+  "budget": 4,
+  "num_unlabeled": 118,
+  "sampling_time_s": 1.5735626220703125e-05
+}

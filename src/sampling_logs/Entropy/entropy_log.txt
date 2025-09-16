@@ -1,0 +1,12 @@
+2025-08-06 11:56:47,895 - INFO - Entropy sampling chose 4/4 imgs in 27.44s (pool=118)
+2025-08-06 11:56:47,895 - INFO - Saved indices → ./sampling_logs/Entropy/selected_indices_20250806_115647.txt
+2025-08-06 11:56:47,896 - INFO - Saved scores → ./sampling_logs/Entropy/entropy_scores_20250806_115647.txt
+2025-08-06 11:56:47,896 - INFO - Saved metadata → ./sampling_logs/Entropy/metadata_20250806_115647.json
+2025-08-06 11:58:12,213 - INFO - Entropy sampling chose 4/4 imgs in 30.34s (pool=114)
+2025-08-06 11:58:12,214 - INFO - Saved indices → ./sampling_logs/Entropy/selected_indices_20250806_115812.txt
+2025-08-06 11:58:12,215 - INFO - Saved scores → ./sampling_logs/Entropy/entropy_scores_20250806_115812.txt
+2025-08-06 11:58:12,215 - INFO - Saved metadata → ./sampling_logs/Entropy/metadata_20250806_115812.json
+2025-08-06 11:59:46,542 - INFO - Entropy sampling chose 4/4 imgs in 30.18s (pool=110)
+2025-08-06 11:59:46,544 - INFO - Saved indices → ./sampling_logs/Entropy/selected_indices_20250806_115946.txt
+2025-08-06 11:59:46,544 - INFO - Saved scores → ./sampling_logs/Entropy/entropy_scores_20250806_115946.txt
+2025-08-06 11:59:46,544 - INFO - Saved metadata → ./sampling_logs/Entropy/metadata_20250806_115946.json

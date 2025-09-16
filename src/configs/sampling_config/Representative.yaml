@@ -1,0 +1,4 @@
+strategy: "representative"
+sampling_params:
+  feature_type: "penultimate"
+  similarity_metric: "euclidean"

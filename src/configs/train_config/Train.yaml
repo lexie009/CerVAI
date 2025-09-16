@@ -1,0 +1,51 @@
+batch_size: 4
+num_epochs: 50
+num_workers: 4
+early_stopping_patience: 15
+
+optimizer:
+  name: Adam
+  lr: 3e-4
+  weight_decay: 0.0001
+  lr_head_p1: 5.0e-4
+  lr_head_p2: 3.0e-4
+  lr_backbone_p2: 1.0e-4
+
+loss:
+  name: Tversky
+  params:
+    alpha: 0.7
+    beta: 0.3
+
+inference:
+  threshold: 0.50
+  keep_largest_cc: true
+  min_cc_area: 50
+
+warmup:
+  enabled: true
+  multiplier: 1.5
+  warmup_epochs: 5
+
+scheduler:
+  name: ReduceLROnPlateau
+  step_size: 25
+  gamma: 0.5
+
+val_plot_slice_interval: 1
+sampling:
+  num_cycles: 5
+  budget: 30
+
+save_dir: ./checkpoints
+device: cuda
+
+semi:
+  enable: true
+  epochs: 6
+  tau: 0.75
+  lambda_pseudo: 1.0
+  lambda_cons: 0.05
+  min_area: 10
+  ignore_border_px: 2
+  lr: 1.0e-4

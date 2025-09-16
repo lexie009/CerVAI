@@ -1,0 +1,98 @@
+# Data Configuration for CerVAI Active Learning Pipeline
+# This file defines dataset paths, preprocessing parameters, and data-related settings
+
+# Dataset paths
+# base_dir_active: "/Users/daidai/Documents/pythonProject_summer/CerVAI/dataset"  # Base directory for active learning rounds (contains active_split/)
+# base_dir_standard: "/Users/daidai/Documents/pythonProject_summer/CerVAI/dataset/dataset_split_final"  # Base directory for standard train/val/test split
+
+base_dir_active: "/home/mry/CerVAI/dataset"  # Base directory for active learning rounds (contains active_split/)
+base_dir_standard: "/home/mry/CerVAI/dataset/dataset_split_final"  # Base directory for standard train/val/test split
+
+# Image and mask preprocessing
+normalize: true  # Apply ImageNet normalization to images
+target_size: [512, 512]  # Target size for image resizing [height, width]
+binary_mask: true  # Convert masks to binary (0/1) for binary segmentation
+
+# Data augmentation settings (applied during training)
+augmentation:
+  enabled: true  # Enable data augmentation for training
+  horizontal_flip: 0.5  # Probability of horizontal flip
+  rotation_degrees: 10  # Maximum rotation angle
+  color_jitter:
+    brightness: 0.2
+    contrast: 0.2
+    saturation: 0.2
+  affine_translate: [0.1, 0.1]  # Maximum translation as fraction of image size
+
+# Dataset split information
+dataset_info:
+  num_classes: 2  # Number of segmentation classes (background + cervix)
+  class_names: ["background", "cervix"]
+  
+# Active learning specific settings
+active_learning:
+  initial_round: "round0"  # Starting round for active learning
+  max_rounds: 5  # Maximum number of active learning rounds
+  
+# Validation settings
+validation:
+  consistent_val_set: true  # Use same validation set across all rounds
+  val_visualization_samples: 5  # Number of samples to visualize from validation set
+
+
+dataset_name: aceto_seg_dataset
+
+# csv path
+# meta_csv: /Users/daidai/Documents/pythonProject_summer/CerVAI/aceto_mask_check_split_final.csv
+
+# train set for active learning
+# train_image_dir: /Users/daidai/Documents/pythonProject_summer/CerVAI/dataset/dataset_split_final/train/images
+# train_mask_dir:  /Users/daidai/Documents/pythonProject_summer/CerVAI/dataset/dataset_split_final/train/masks
+
+# validation set
+# val_image_dir: /Users/daidai/Documents/pythonProject_summer/CerVAI/dataset/dataset_split_final/val/images
+# val_mask_dir:  /Users/daidai/Documents/pythonProject_summer/CerVAI/dataset/dataset_split_final/val/masks
+
+# test set
+# test_image_dir: /Users/daidai/Documents/pythonProject_summer/CerVAI/dataset/dataset_split_final/test/images
+# test_mask_dir:  /Users/daidai/Documents/pythonProject_summer/CerVAI/dataset/dataset_split_final/test/masks
+
+# round 0
+# round0_image_dir: /Users/daidai/Documents/pythonProject_summer/CerVAI/dataset/active_split/round0/images
+# round0_mask_dir:  /Users/daidai/Documents/pythonProject_summer/CerVAI/dataset/active_split/round0/masks
+
+# csv path
+meta_csv: "/home/mry/CerVAI/aceto_mask_check_split_final.csv"
+
+# train set for active learning
+train_image_dir: "/home/mry/CerVAI/dataset/dataset_split_final/train/images"
+train_mask_dir:  "/home/mry/CerVAI/dataset/dataset_split_final/train/masks"
+
+# validation set
+val_image_dir: "/home/mry/CerVAI/dataset/dataset_split_final/val/images"
+val_mask_dir:  "/home/mry/CerVAI/dataset/dataset_split_final/val/masks"
+
+# test set
+test_image_dir: "/home/mry/CerVAI/dataset/dataset_split_final/test/images"
+test_mask_dir:  "/home/mry/CerVAI/dataset/dataset_split_final/test/masks"
+
+# round 0
+round0_image_dir: "/home/mry/CerVAI/dataset/active_split/round0/images"
+round0_mask_dir:  "/home/mry/CerVAI/dataset/active_split/round0/masks"
+
+# image transformation
+transform:
+  resize: [512, 512]
+  normalize: true
+  augmentations:
+    horizontal_flip: true
+    rotation: 10
+
+roi:
+  enable_train: true
+  enable_val: false
+  enable_test: false
+  pad_ratio: 0.10
+  mode_train: image
+  mode_val: image
+  mode_test: image

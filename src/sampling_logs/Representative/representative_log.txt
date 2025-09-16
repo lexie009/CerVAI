@@ -1,0 +1,15 @@
+2025-08-06 13:29:40,069 - INFO - Start sampling with budget 4
+2025-08-06 13:29:57,742 - INFO - Extracted features for 118 samples with dim 2048
+2025-08-06 13:29:57,795 - INFO - Selected 4 representative samples in 17.73 seconds
+2025-08-06 13:29:57,795 - INFO - Selected 4 representative samples in 17.73 seconds
+2025-08-06 13:29:57,795 - INFO - Saved metadata → ./sampling_logs/Representative/metadata_20250806_132957.json
+2025-08-06 13:30:44,072 - INFO - Start sampling with budget 4
+2025-08-06 13:31:01,964 - INFO - Extracted features for 114 samples with dim 2048
+2025-08-06 13:31:01,967 - INFO - Selected 4 representative samples in 17.90 seconds
+2025-08-06 13:31:01,968 - INFO - Selected 4 representative samples in 17.90 seconds
+2025-08-06 13:31:01,968 - INFO - Saved metadata → ./sampling_logs/Representative/metadata_20250806_133101.json
+2025-08-06 13:31:56,987 - INFO - Start sampling with budget 4
+2025-08-06 13:32:16,205 - INFO - Extracted features for 110 samples with dim 2048
+2025-08-06 13:32:16,209 - INFO - Selected 4 representative samples in 19.22 seconds
+2025-08-06 13:32:16,210 - INFO - Selected 4 representative samples in 19.22 seconds
+2025-08-06 13:32:16,211 - INFO - Saved metadata → ./sampling_logs/Representative/metadata_20250806_133216.json

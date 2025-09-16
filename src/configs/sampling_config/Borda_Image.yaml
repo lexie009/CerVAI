@@ -1,0 +1,8 @@
+strategy: "bordaimage"
+sampling_params:
+  metrics:
+    - "uncertainty"
+    - "representativeness"
+    - "texture"
+  normalize: true
+  fusion_weight: null

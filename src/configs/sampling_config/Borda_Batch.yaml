@@ -1,0 +1,12 @@
+strategy: "bordabatch"
+sampling_params:
+    num_inferences: 10
+    use_dropout: true
+    metrics:
+      - "uncertainty"
+      - "representativeness"
+      - "texture"
+    group_size: 5
+    num_groups: 40
+    aggregation: "mean"
+    normalize: true

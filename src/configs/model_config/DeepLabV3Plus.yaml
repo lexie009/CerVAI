@@ -1,0 +1,22 @@
+model_name: "DeepLabV3Plus"
+in_channels: 3
+out_channels: 2
+structure:
+  encoder:
+    name: "resnet34"
+    pretrained: true
+    encoder_weights: "imagenet"
+    output_stride: 16
+  decoder:
+    atrous_rates: [6, 12, 18]
+    use_separable_conv: false
+  conv_block:
+    normalization: "batch_norm"
+    activation_fct: "ReLU"
+  dropout:
+    enable: true
+    dropout_rate: 0.5
+    location: "after_decoder"
+  head:
+    kernel_size: 1
+    activation: "sigmoid"
