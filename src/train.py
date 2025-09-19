@@ -946,25 +946,35 @@ def main():
     parser = ArgumentParser(description='Active Learning Training Pipeline')
     
     # Config file paths
-    # parser.add_argument('--train_config', type=str,
-    #                   default='/Users/daidai/Documents/pythonProject_summer/CerVAI/src/configs/train_config/Train.yaml',
-    #                   help='Path to training config YAML')
-    #parser.add_argument('--data_config', type=str,
-    #                   default='/Users/daidai/Documents/pythonProject_summer/CerVAI/src/configs/data_config/Data.yaml',
-    #                   help='Path to data config YAML')
-    #parser.add_argument('--model_config', type=str,
-    #                   default='/Users/daidai/Documents/pythonProject_summer/CerVAI/src/configs/model_config/DeepLabV3Plus.yaml',
-    #                   help='Path to model config YAML')
-
     parser.add_argument('--train_config', type=str,
-                       default='/home/mry/CerVAI/src/configs/train_config/Train.yaml',
-                       help='Path to training config YAML')
+                        default="/content/drive/MyDrive/CerVAI/src/configs/train_config/Train.yaml",
+                        help='Path to training config YAML')
     parser.add_argument('--data_config', type=str,
-                       default='/home/mry/CerVAI/src/configs/data_config/Data.yaml',
-                       help='Path to data config YAML')
+                        default='/content/drive/MyDrive/CerVAI/src/configs/data_config/Data.yaml',
+                        help='Path to data config YAML')
     parser.add_argument('--model_config', type=str,
-                       default='/home/mry/CerVAI/src/configs/model_config/DeepLabV3Plus.yaml',
-                       help='Path to model config YAML')
+                        default='/content/drive/MyDrive/CerVAI/src/configs/model_config/DeepLabV3Plus.yaml',
+                        help='Path to model config YAML')
+
+    # parser.add_argument('--train_config', type=str,
+    #                    default='/Users/daidai/Documents/pythonProject_summer/CerVAI/src/configs/train_config/Train.yaml',
+    #                    help='Path to training config YAML')
+    # parser.add_argument('--data_config', type=str,
+    #                    default='/Users/daidai/Documents/pythonProject_summer/CerVAI/src/configs/data_config/Data.yaml',
+    #                    help='Path to data config YAML')
+    # parser.add_argument('--model_config', type=str,
+    #                    default='/Users/daidai/Documents/pythonProject_summer/CerVAI/src/configs/model_config/DeepLabV3Plus.yaml',
+    #                    help='Path to model config YAML')
+
+    # parser.add_argument('--train_config', type=str,
+    #                    default='/home/mry/CerVAI/src/configs/train_config/Train.yaml',
+    #                    help='Path to training config YAML')
+    # parser.add_argument('--data_config', type=str,
+    #                    default='/home/mry/CerVAI/src/configs/data_config/Data.yaml',
+    #                    help='Path to data config YAML')
+    # parser.add_argument('--model_config', type=str,
+    #                    default='/home/mry/CerVAI/src/configs/model_config/DeepLabV3Plus.yaml',
+    #                    help='Path to model config YAML')
     
     # Active learning parameters
     parser.add_argument('--sampling_strategy', type=str, default='random',
@@ -1039,16 +1049,18 @@ def main():
     exp_dir.mkdir(parents=True, exist_ok=True)
 
     # master_csv     = Path("/Users/daidai/Documents/pythonProject_summer/CerVAI") / "master_pool.csv"    # single source-of-truth
-    master_csv = Path("/home/mry//CerVAI") / "master_pool.csv"
+    # master_csv = Path("/home/mry//CerVAI") / "master_pool.csv"
+    master_csv = Path(load_config(args.data_config)['meta_csv']).parent / "master_pool.csv"
 
     # --- 如果 master_pool 不存在就用 meta CSV 生成一份 ---
-    # if not master_csv.exists():
-    #    meta_csv = Path("/Users/daidai/Documents/pythonProject_summer/CerVAI/aceto_mask_check_split_final.csv")  # e.g. aceto_mask_check_split.csv
-    #    df = pd.read_csv(meta_csv)
-
     if not master_csv.exists():
-        meta_csv = Path("/home/mry/CerVAI/aceto_mask_check_split_final.csv")  # e.g. aceto_mask_check_split.csv
+        # meta_csv = Path("/Users/daidai/Documents/pythonProject_summer/CerVAI/aceto_mask_check_split_final.csv")  # e.g. aceto_mask_check_split.csv
+        meta_csv = Path(load_config(args.data_config)['meta_csv']).parent / "master_pool.csv"
         df = pd.read_csv(meta_csv)
+
+    # if not master_csv.exists():
+        # meta_csv = Path("/home/mry/CerVAI/aceto_mask_check_split_final.csv")  # e.g. aceto_mask_check_split.csv
+        # df = pd.read_csv(meta_csv)
 
         # 保证必须列
         if 'labeled' not in df.columns:
