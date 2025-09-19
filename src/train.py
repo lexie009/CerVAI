@@ -299,8 +299,10 @@ def sample_images_wrapper(strategy: str,
     strategy_cfg = {"strategy": strategy.title(), "sampling_params": {}}
     # yaml_path = Path(
     #    "/Users/daidai/Documents/pythonProject_summer/CerVAI/src/configs/sampling_config") / f"{strategy.title()}.yaml"
+    # yaml_path = Path(
+       # "/home/mry/CerVAI/src/configs/sampling_config") / f"{strategy.title()}.yaml"
     yaml_path = Path(
-        "/home/mry/CerVAI/src/configs/sampling_config") / f"{strategy.title()}.yaml"
+     "/content/drive/MyDrive/CerVAI/src/configs/sampling_config") / f"{strategy.title()}.yaml"
 
     if yaml_path.exists():
         try:
@@ -614,12 +616,8 @@ def validate_visualize_sample(
         else float(train_cfg.get("inference", {}).get("threshold", 0.5))
 
     # ---------- 1) validate ----------
-    v_loader = DataLoader(
-        val_ds,
-        batch_size=train_cfg["batch_size"],
-        shuffle=False,
-        num_workers=0
-    )
+    bs = train_cfg.get("batch_size", train_cfg.get("train", {}).get("batch_size", 4))
+    v_loader = DataLoader(val_ds, batch_size=bs, shuffle=False, num_workers=0)
 
     val_metrics = evaluate_basic(trainer.model, v_loader, device, threshold=infer_thr)
     save_round_metrics(
@@ -646,7 +644,7 @@ def validate_visualize_sample(
 
     # ---------- 2.5) sweep 阈值并画曲线 ----------
     sweep_dir = os.path.join(dirs["results"], f"{round_name}_sweep")
-    thr_list = np.linspace(0.30, 0.80, 21)
+    thr_list = np.linspace(0.10, 0.80, 21)
     sweep_info = sweep_thresholds_and_plot(
         model=trainer.model,
         dataset=val_ds,
@@ -870,7 +868,10 @@ def active_learning_loop(
             budget=budget, device=device, model_name=model_name, threshold=best_thr_last)
 
         # 让 full_train_ds 与最新 pool.csv 保持同步
-        full_train_ds.df = pd.read_csv(pool_csv)
+        _pool_latest = pd.read_csv(pool_csv)[["new_image_name", "labeled"]]
+        full_train_ds.df = full_train_ds.df.merge(_pool_latest, on="new_image_name", how="left", suffixes=("", "_new"))
+        full_train_ds.df["labeled"] = full_train_ds.df["labeled_new"].fillna(full_train_ds.df["labeled"]).astype(int)
+        full_train_ds.df.drop(columns=[c for c in full_train_ds.df.columns if c.endswith("_new")], inplace=True)
 
         # ---------- 记账 ----------
         results["rounds"].append({
@@ -895,10 +896,11 @@ def active_learning_loop(
     logger.info("🔬  Evaluating final model on TEST set ...")
 
     # create test-dataset / loader
-    test_df = pd.read_csv(pool_csv).query("set == 'test'")
+    tmp_test_csv = Path(dirs["results"]) / "test_only.csv"
+    pd.read_csv(pool_csv).query("set=='test'").to_csv(tmp_test_csv, index=False)
 
     test_ds = CervixDataset(
-        csv_path=test_df,
+        csv_path=str(tmp_test_csv),
         image_dir=os.path.join(data_config['base_dir_standard'], 'test', 'images'),
         mask_dir=os.path.join(data_config['base_dir_standard'], 'test', 'masks'),
         normalize=True,
@@ -921,7 +923,9 @@ def active_learning_loop(
     )
 
     # Use the best-threshold found on the last validation sweep (fallback to config)
-    test_thr = float(train_config.get("inference", {}).get("threshold", 0.50))
+    test_thr = float(best_thr_last) if ("best_thr_last" in locals() and best_thr_last is not None) \
+        else float(train_config.get("inference", {}).get("threshold", 0.50))
+
     test_metrics = evaluate_full(trainer.model, test_loader, device, threshold=test_thr)
     logger.info(f"Using inference threshold for TEST: {test_thr:.2f}")
 
@@ -1055,8 +1059,9 @@ def main():
     # --- 如果 master_pool 不存在就用 meta CSV 生成一份 ---
     if not master_csv.exists():
         # meta_csv = Path("/Users/daidai/Documents/pythonProject_summer/CerVAI/aceto_mask_check_split_final.csv")  # e.g. aceto_mask_check_split.csv
-        meta_csv = Path(load_config(args.data_config)['meta_csv']).parent / "master_pool.csv"
-        df = pd.read_csv(meta_csv)
+        real_meta_csv = Path(load_config(args.data_config)['meta_csv'])
+        df = pd.read_csv(real_meta_csv)
+
 
     # if not master_csv.exists():
         # meta_csv = Path("/home/mry/CerVAI/aceto_mask_check_split_final.csv")  # e.g. aceto_mask_check_split.csv
@@ -1069,11 +1074,7 @@ def main():
             raise ValueError("'set' column (train/val/test) is missing in meta csv")
 
         df.to_csv(master_csv, index=False)
-        logger.info(f"🆕 Created master_pool.csv from {meta_csv}")
-
-    run_pool_csv = exp_dir / "pool.csv"
-    shutil.copy(master_csv, run_pool_csv)
-    logger.info(f"✅ Copied master_pool → {run_pool_csv}")
+        logger.info(f"🆕 Created master_pool.csv from {real_meta_csv}")
 
     run_pool_csv   = exp_dir / "pool.csv"
     shutil.copy(master_csv, run_pool_csv)
