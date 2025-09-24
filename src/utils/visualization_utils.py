@@ -48,49 +48,80 @@ def get_foreground_prob(tensor):
         raise ValueError(f"Unsupported tensor shape {tensor.shape}")
 
 
-def plot_uncertainty_image(cur_data, cur_target, cur_pred, cur_uncertainty_map=None, img_indice='',
-                           plot_type='contour', vmin=0, vmax=None):
+def plot_uncertainty_image(
+    cur_data, cur_target, cur_pred, cur_uncertainty_map=None, img_indice="",
+    plot_type="contour", vmin=0, vmax=None, save_path=None
+):
     """
     Visualize input image, target, prediction, and optional uncertainty map.
-
+    cur_data, cur_target, cur_pred 形状应为 (H, W)，数值 0/1 或 0~1。
     """
-    if plot_type == 'contour':
+    # —— 1) 统一转 float，避免 imshow/等高线对 bool/int 的奇怪行为
+    cur_data   = np.asarray(cur_data, dtype=float)
+    cur_target = np.asarray(cur_target, dtype=float)
+    cur_pred   = np.asarray(cur_pred, dtype=float)
+    if cur_uncertainty_map is not None:
+        cur_uncertainty_map = np.asarray(cur_uncertainty_map, dtype=float)
+        if vmax is None:  # 给不确定性一眼直观的范围
+            vmax = float(cur_uncertainty_map.max() if np.isfinite(cur_uncertainty_map).any() else 1.0)
+
+    if plot_type == "contour":
         fig = plt.figure(figsize=(10, 5), layout="constrained")
         ncols = 2 if cur_uncertainty_map is not None else 1
-        i = 1
 
-        ax = fig.add_subplot(1, ncols, i)
-        ax.imshow(cur_data, 'gray')
-        for contour in find_contours(cur_target.T, 0.5):
-            ax.plot(contour[:, 0], contour[:, 1], '-b', lw=5)
-        for contour in find_contours(cur_pred.T, 0.5):
-            ax.plot(contour[:, 0], contour[:, 1], '-r', lw=5)
-        ax.set_title(f'Idx {img_indice}', fontsize=12)
-        plt.axis('off')
-        i += 1
+        # ---- 左图：原图 + 轮廓（蓝=GT，红=Pred）----
+        ax = fig.add_subplot(1, ncols, 1)
+        ax.imshow(cur_data, cmap="gray")
+        # skimage.find_contours 返回 (row, col)，绘图要 x=col, y=row —— 不需要转置 .T
+        for contour in find_contours(cur_target, 0.5):
+            ax.plot(contour[:, 1], contour[:, 0], "-b", lw=3)
+        for contour in find_contours(cur_pred, 0.5):
+            ax.plot(contour[:, 1], contour[:, 0], "-r", lw=3)
+        ax.set_title(f"Idx {img_indice}", fontsize=12)
+        ax.axis("off")
+
+        # ---- 右图：不确定性热图（可选）----
+        if cur_uncertainty_map is not None:
+            ax = fig.add_subplot(1, ncols, 2)
+            im = ax.imshow(cur_uncertainty_map, cmap="viridis", vmin=0, vmax=vmax, interpolation="nearest")
+            ax.set_title(f"Uncertainty: {float(cur_uncertainty_map.mean()):.4f}")
+            ax.axis("off")
+            # 可选：加 colorbar
+            # fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
     else:
         fig = plt.figure(figsize=(15, 5), layout="constrained")
         ncols = 3 if cur_uncertainty_map is not None else 2
 
+        # ---- 左：GT 叠加 ----
         ax = fig.add_subplot(1, ncols, 1)
-        ax.imshow(cur_data, 'gray')
-        ax.imshow(cur_target, cmap='viridis', alpha=0.6, vmin=vmin, vmax=vmax)
-        ax.set_title(f'GT - Idx {img_indice}')
-        plt.axis('off')
+        ax.imshow(cur_data, cmap="gray")
+        ax.imshow(cur_target, cmap="viridis", alpha=0.6, vmin=vmin, vmax=vmax, interpolation="nearest")
+        ax.set_title(f"GT - Idx {img_indice}")
+        ax.axis("off")
 
+        # ---- 中：Pred 叠加 ----
         ax = fig.add_subplot(1, ncols, 2)
-        ax.imshow(cur_data, 'gray')
-        ax.imshow(cur_pred, cmap='viridis', alpha=0.6, vmin=vmin, vmax=vmax)
-        ax.set_title('Prediction')
-        plt.axis('off')
+        ax.imshow(cur_data, cmap="gray")
+        ax.imshow(cur_pred, cmap="viridis", alpha=0.6, vmin=vmin, vmax=vmax, interpolation="nearest")
+        ax.set_title("Prediction")
+        ax.axis("off")
 
+        # ---- 右：不确定性（可选）----
         if cur_uncertainty_map is not None:
             ax = fig.add_subplot(1, ncols, 3)
-            ax.imshow(cur_uncertainty_map, cmap='viridis', vmin=0)
-            ax.set_title(f'Uncertainty: {np.mean(cur_uncertainty_map):.4f}')
-            plt.axis('off')
+            ax.imshow(cur_uncertainty_map, cmap="viridis", vmin=0, vmax=vmax, interpolation="nearest")
+            ax.set_title(f"Uncertainty: {float(cur_uncertainty_map.mean()):.4f}")
+            ax.axis("off")
 
-    return plt
+    # —— 4) 保存要用 fig.savefig；并且关闭 fig（不是 plt）——防止返回了一个已关闭的句柄
+    if save_path is not None:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+
+    return fig
+
 
 
 def plot_multiple_data_pred(cur_multiple_data, cur_multiple_pred, query_indice):
@@ -170,6 +201,15 @@ def plot_all_uncertain_samples_from_lists(indice_list, data_list, logits_list, t
         else:
             trainer.logger.experiment.add_image(f"{title}_data", cur_data, idx, dataformats="HW")
             trainer.logger.experiment.add_image(f"{title}_target", cur_target, idx, dataformats="HW")
+            # 同步发 pred（以及不确定性）便于肉眼检查
+            trainer.logger.experiment.add_image(f"{title}_pred", cur_pred.astype(np.uint8) * 255, idx,
+                                                             dataformats="HW")
+
+            if cur_uncertainty_map is not None:
+                # 归一化到 0-255 再发
+                u = cur_uncertainty_map
+                u = ((u - u.min()) / (u.max() - u.min() + 1e-8) * 255).astype(np.uint8)
+                trainer.logger.experiment.add_image(f"{title}_uncertainty", u, idx, dataformats="HW")
 
 def plot_group_score_distribution(group_scores: dict,
                                    title: str = "Group Aggregated Scores",
@@ -356,9 +396,6 @@ def visualize_predictions_overlay(model: torch.nn.Module,
             logits = _tta_logits(model, img_in)  # ← 用 TTA
             prob = get_foreground_prob(logits)[0].cpu().numpy()  # ← 统一取前景概率
             # prob 是 [H,W]，用外部传入的 threshold 生成二值预测
-            pred = (prob > float(threshold))
-            pred = _apply_cc_filter(pred, keep_largest_cc=keep_largest_cc, min_cc_area=min_cc_area)
-
             pred = (prob > float(threshold))
             pred = _apply_cc_filter(pred, keep_largest_cc=keep_largest_cc, min_cc_area=min_cc_area)
 

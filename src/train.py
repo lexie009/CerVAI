@@ -83,20 +83,19 @@ def visualize_predictions(model: torch.nn.Module,
                           keep_largest_cc: bool = False,
                           min_cc_area: int = 0) -> None:
     """
-    可视化预测，叠加 TP/FP/FN 并统计连通块信息。
+    Visualize prediction, superimpose TP/FP/FN and statistically analyze the information of connected blocks.
 
-    新增参数:
-        threshold: 二分类前景阈值（默认0.5）
-        keep_largest_cc: 是否只保留最大连通块（仅用于可视化/评估）
-        min_cc_area: 过滤掉小连通块的最小像素面积（0表示不过滤）
+    threshold: Binary classification prospect threshold (default 0.5)
+    keep_largest_cc: Whether to retain only the maximum connected component (for visualization/evaluation only)
+    min_cc_area: The minimum pixel area for filtering out small connected components (0 indicates no filtering)
     """
 
     os.makedirs(save_dir, exist_ok=True)
     model.eval()
 
-    # ---- helpers (不引入新依赖，如无 scipy 则用纯 numpy 回退) ----
+    # ---- helpers ----
     def _label_cc_numpy(binary_mask: np.ndarray):
-        """8连通的简易连通域标记，返回 labels, num_labels, sizes(list)。"""
+        """return labels, num_labels, sizes(list)。"""
         h, w = binary_mask.shape
         labels = np.zeros((h, w), dtype=np.int32)
         curr = 0
@@ -122,7 +121,7 @@ def visualize_predictions(model: torch.nn.Module,
         return labels, curr, sizes
 
     def cc_stats(mask_bool: np.ndarray):
-        """返回 (num_cc, sizes list)。优先用 scipy.ndimage，失败则用 numpy 回退。"""
+        """return (num_cc, sizes list)。use scipy.ndimage first，if unsuccessful use numpy """
         try:
             import scipy.ndimage as ndi  # 可用则更快
             labeled, num = ndi.label(mask_bool.astype(np.uint8))
@@ -139,7 +138,7 @@ def visualize_predictions(model: torch.nn.Module,
         num, sizes, labeled = cc_stats(mask_bool)
         if num <= 1:
             return mask_bool
-        # 选面积最大的 label（>= min_cc_area 才考虑）
+        #  label（>= min_cc_area）
         sizes_arr = np.asarray(sizes)
         order = np.argsort(sizes_arr)[::-1]  # 大→小
         chosen = None

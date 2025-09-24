@@ -11,7 +11,7 @@ class DeepLabV3Plus(nn.Module):
         encoder_weights = structure["encoder"].get("encoder_weights", "imagenet")
         output_stride = structure["encoder"].get("output_stride", 16)
         in_channels = model_cfg.get("in_channels", 3)
-        out_channels = model_cfg.get("out_channels", 1)
+        out_channels = model_cfg.get("out_channels", 2)
 
         # === Create backbone + decoder ===
         self.base_model = smp.DeepLabV3Plus(
@@ -28,22 +28,24 @@ class DeepLabV3Plus(nn.Module):
         self.dropout_p = dropout_cfg.get("dropout_rate", 0.5)
 
         # === Output activation ===
-        head_cfg = structure.get("head", {})
-        activation = head_cfg.get("activation", "sigmoid")
-        if activation == "softmax":
-            self.activation = nn.Softmax(dim=1)
-        elif activation == "sigmoid":
-            self.activation = nn.Sigmoid()
-        else:
-            self.activation = nn.Identity()
+        # head_cfg = structure.get("head", {})
+        # activation = head_cfg.get("activation", "sigmoid")
+        # if activation == "softmax":
+        #     self.activation = nn.Softmax(dim=1)
+        # elif activation == "sigmoid":
+        #     self.activation = nn.Sigmoid()
+        # else:
+        #     self.activation = nn.Identity()
+        # only output logits
+        self.activation = nn.Identity()
 
     def forward(self, x, mc_dropout=False):
-        masks = self.base_model(x)
+        logits = self.base_model(x)  # raw logits
 
         if self.use_dropout and mc_dropout:
-            masks = F.dropout2d(masks, p=self.dropout_p, training=True)
+            logits = F.dropout2d(logits, p=self.dropout_p, training=True)
 
-        return self.activation(masks)
+        return logits
 
     def sample_predict(self, x, T=10):
         self.eval()

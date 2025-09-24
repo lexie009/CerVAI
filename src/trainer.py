@@ -281,23 +281,43 @@ class Trainer:
             ]
         )
         self.logger = logging.getLogger(__name__)
-        
+
     def _setup_loss(self):
         """Setup loss function."""
         loss_name = self.config['loss']['name']
         loss_params = self.config['loss'].get('params', {})
-        
+
         if loss_name == 'CrossEntropyLoss':
             return nn.CrossEntropyLoss(**loss_params)
+
         elif loss_name == 'DiceCE':
-            return DiceCELoss(sigmoid=False, softmax=True, to_onehot_y=True, include_background=False)
+            return DiceCELoss(
+                sigmoid=False,
+                softmax=True,
+                to_onehot_y=True,
+                include_background=False
+            )
+
         elif loss_name == 'Tversky':
-            return TverskyLoss(alpha=0.7, beta=0.3, include_background=False, to_onehot_y=True, softmax=True)
+            alpha = loss_params.get("alpha", 0.7)
+            beta = loss_params.get("beta", 0.3)
+            return TverskyLoss(
+                alpha=alpha,
+                beta=beta,
+                include_background=False,
+                to_onehot_y=True,
+                softmax=True
+            )
+
         elif loss_name == 'Focal':
-            return FocalLoss(gamma=2.0, to_onehot_y=True, softmax=True)
+            return FocalLoss(
+                gamma=2.0,
+                to_onehot_y=True,
+                softmax=True
+            )
+
         else:
             raise ValueError(f"Unsupported loss function: {loss_name}")
-
 
     def _setup_optimizer(self):
         """Setup optimizer."""
@@ -445,8 +465,8 @@ class Trainer:
                 'Avg Loss': f'{total_loss/(batch_idx+1):.4f}'
             })
 
-        for i, (images, masks, _) in enumerate(self.train_loader):
-            logging.debug(f"Batch {i} shape: {images.shape}")
+        # for i, (images, masks, _) in enumerate(self.train_loader):
+            # logging.debug(f"Batch {i} shape: {images.shape}")
 
         return total_loss / num_batches
 

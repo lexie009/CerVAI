@@ -5,8 +5,11 @@
 # base_dir_active: "/Users/daidai/Documents/pythonProject_summer/CerVAI/dataset"  # Base directory for active learning rounds (contains active_split/)
 # base_dir_standard: "/Users/daidai/Documents/pythonProject_summer/CerVAI/dataset/dataset_split_final"  # Base directory for standard train/val/test split
 
-base_dir_active: "/home/mry/CerVAI/dataset"  # Base directory for active learning rounds (contains active_split/)
-base_dir_standard: "/home/mry/CerVAI/dataset/dataset_split_final"  # Base directory for standard train/val/test split
+# base_dir_active: "/home/mry/CerVAI/dataset"  # Base directory for active learning rounds (contains active_split/)
+# base_dir_standard: "/home/mry/CerVAI/dataset/dataset_split_final"  # Base directory for standard train/val/test split
+
+base_dir_active: "/content/drive/MyDrive/CerVAI/dataset"
+base_dir_standard: "/content/drive/MyDrive/CerVAI/dataset_split_final"
 
 # Image and mask preprocessing
 normalize: true  # Apply ImageNet normalization to images
@@ -42,43 +45,63 @@ validation:
 
 dataset_name: aceto_seg_dataset
 
+## csv path
+#meta_csv: /Users/daidai/Documents/pythonProject_summer/CerVAI/aceto_mask_check_split_final.csv
+#
+## train set for active learning
+#train_image_dir: /Users/daidai/Documents/pythonProject_summer/CerVAI/dataset/dataset_split_final/train/images
+#train_mask_dir:  /Users/daidai/Documents/pythonProject_summer/CerVAI/dataset/dataset_split_final/train/masks
+#
+## validation set
+#val_image_dir: /Users/daidai/Documents/pythonProject_summer/CerVAI/dataset/dataset_split_final/val/images
+#val_mask_dir:  /Users/daidai/Documents/pythonProject_summer/CerVAI/dataset/dataset_split_final/val/masks
+#
+## test set
+#test_image_dir: /Users/daidai/Documents/pythonProject_summer/CerVAI/dataset/dataset_split_final/test/images
+#test_mask_dir:  /Users/daidai/Documents/pythonProject_summer/CerVAI/dataset/dataset_split_final/test/masks
+#
+## round 0
+#round0_image_dir: /Users/daidai/Documents/pythonProject_summer/CerVAI/dataset/active_split/round0/images
+#round0_mask_dir:  /Users/daidai/Documents/pythonProject_summer/CerVAI/dataset/active_split/round0/masks
+
+
 # csv path
-# meta_csv: /Users/daidai/Documents/pythonProject_summer/CerVAI/aceto_mask_check_split_final.csv
+# meta_csv: "/home/mry/CerVAI/aceto_mask_check_split_final.csv"
 
 # train set for active learning
-# train_image_dir: /Users/daidai/Documents/pythonProject_summer/CerVAI/dataset/dataset_split_final/train/images
-# train_mask_dir:  /Users/daidai/Documents/pythonProject_summer/CerVAI/dataset/dataset_split_final/train/masks
+# train_image_dir: "/home/mry/CerVAI/dataset/dataset_split_final/train/images"
+# train_mask_dir:  "/home/mry/CerVAI/dataset/dataset_split_final/train/masks"
 
 # validation set
-# val_image_dir: /Users/daidai/Documents/pythonProject_summer/CerVAI/dataset/dataset_split_final/val/images
-# val_mask_dir:  /Users/daidai/Documents/pythonProject_summer/CerVAI/dataset/dataset_split_final/val/masks
+# val_image_dir: "/home/mry/CerVAI/dataset/dataset_split_final/val/images"
+# val_mask_dir:  "/home/mry/CerVAI/dataset/dataset_split_final/val/masks"
 
 # test set
-# test_image_dir: /Users/daidai/Documents/pythonProject_summer/CerVAI/dataset/dataset_split_final/test/images
-# test_mask_dir:  /Users/daidai/Documents/pythonProject_summer/CerVAI/dataset/dataset_split_final/test/masks
+# test_image_dir: "/home/mry/CerVAI/dataset/dataset_split_final/test/images"
+# test_mask_dir:  "/home/mry/CerVAI/dataset/dataset_split_final/test/masks"
 
 # round 0
-# round0_image_dir: /Users/daidai/Documents/pythonProject_summer/CerVAI/dataset/active_split/round0/images
-# round0_mask_dir:  /Users/daidai/Documents/pythonProject_summer/CerVAI/dataset/active_split/round0/masks
+# round0_image_dir: "/home/mry/CerVAI/dataset/active_split/round0/images"
+# round0_mask_dir:  "/home/mry/CerVAI/dataset/active_split/round0/masks"
 
 # csv path
-meta_csv: "/home/mry/CerVAI/aceto_mask_check_split_final.csv"
+meta_csv: "/content/drive/MyDrive/CerVAI/aceto_mask_check_split_final.csv"
 
-# train set for active learning
-train_image_dir: "/home/mry/CerVAI/dataset/dataset_split_final/train/images"
-train_mask_dir:  "/home/mry/CerVAI/dataset/dataset_split_final/train/masks"
+# train set
+train_image_dir: "/content/drive/MyDrive/CerVAI/dataset_split_final/train/images"
+train_mask_dir:  "/content/drive/MyDrive/CerVAI/dataset_split_final/train/masks"
 
 # validation set
-val_image_dir: "/home/mry/CerVAI/dataset/dataset_split_final/val/images"
-val_mask_dir:  "/home/mry/CerVAI/dataset/dataset_split_final/val/masks"
+val_image_dir: "/content/drive/MyDrive/CerVAI/dataset_split_final/val/images"
+val_mask_dir:  "/content/drive/MyDrive/CerVAI/dataset_split_final/val/masks"
 
 # test set
-test_image_dir: "/home/mry/CerVAI/dataset/dataset_split_final/test/images"
-test_mask_dir:  "/home/mry/CerVAI/dataset/dataset_split_final/test/masks"
+test_image_dir: "/content/drive/MyDrive/CerVAI/dataset_split_final/test/images"
+test_mask_dir:  "/content/drive/MyDrive/CerVAI/dataset_split_final/test/masks"
 
 # round 0
-round0_image_dir: "/home/mry/CerVAI/dataset/active_split/round0/images"
-round0_mask_dir:  "/home/mry/CerVAI/dataset/active_split/round0/masks"
+round0_image_dir: "/content/drive/MyDrive/CerVAI/data/active_split/round0/images"
+round0_mask_dir:  "/content/drive/MyDrive/CerVAI/data/active_split/round0/masks"
 
 # image transformation
 transform:

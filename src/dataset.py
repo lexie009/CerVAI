@@ -359,4 +359,4 @@ class CervixUnlabeledImages(Dataset):
         image = image.resize(self.target_size, resample=Image.BILINEAR)
         image = self.transform(image)
         # 只返回图像即可（无 mask）
-        return image
+        return image, None, int(self.df.index[idx])

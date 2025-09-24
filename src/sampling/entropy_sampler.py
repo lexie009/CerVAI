@@ -3,6 +3,9 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import logging
+
+from utils.evaluate_utils import get_foreground_prob
+
 logger = logging.getLogger(__name__)
 
 from utils.uncertainty_utils import compute_entropy
@@ -74,7 +77,8 @@ class EntropySampler(BaseSampler):
                     # -------- ③ forward pass & entropy ----------
                     x = x.to(self.device)
                     logits = self.model(x)  # (B,C,H,W)
-                    probs = F.softmax(logits, dim=1)
+                    # probs = F.softmax(logits, dim=1)
+                    probs = get_foreground_prob(logits)
                     entmap = compute_entropy(probs)  # (B,H,W)
                     entvec = entmap.mean(dim=(1, 2))  # (B,)
 

@@ -1,6 +1,0 @@
-{
-  "strategy": "Entropy",
-  "budget": 4,
-  "num_unlabeled": 114,
-  "sampling_time_s": 30.3397433757782
-}
