@@ -573,8 +573,9 @@ def build_unlabeled_loader(data_config: Dict[str, Any],
         image_dir=image_dir,
         target_size=target_size,
         normalize=True,
-        set_filter='train'
-    )
+        set_filter='train',
+        return_idx=False)
+
     if len(ds_u) == 0:
         return None
     return DataLoader(ds_u,

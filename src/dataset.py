@@ -84,6 +84,7 @@ class CervixDataset(Dataset):
                  enable_roi: bool = False,
                  pad_ratio: float = 0.1,
                  roi_mode: str = "auto",
+                 return_idx: bool = False,
                  use_mask_on_valtest: bool = False):
         """
         Initialize the dataset with CSV metadata and image/mask directories.
@@ -110,6 +111,7 @@ class CervixDataset(Dataset):
         self.roi_mode = roi_mode
         self.use_mask_on_valtest = use_mask_on_valtest
         self.split = set_filter or ""
+        self.return_idx = return_idx
 
         self.transform = get_transform(target_size, normalize, augment=False, is_mask=False)
         self.mask_transform = get_transform(target_size, normalize=False, augment=False, is_mask=True)
