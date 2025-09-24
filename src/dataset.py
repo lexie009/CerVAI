@@ -359,4 +359,10 @@ class CervixUnlabeledImages(Dataset):
         image = image.resize(self.target_size, resample=Image.BILINEAR)
         image = self.transform(image)
         # 只返回图像即可（无 mask）
-        return image, None, int(self.df.index[idx])
+        if self.return_idx:
+            # 给“采样器”用：不要返回 None！最多返回 (image, idx) 或 dict
+            return image, int(self.df.index[idx])
+        else:
+            # 给“半监督训练”用：只要图像
+            return image
+
