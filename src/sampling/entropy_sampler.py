@@ -79,32 +79,11 @@ class EntropySampler(BaseSampler):
                     logits = self.model(x)  # (B,C,H,W)
                     # probs = F.softmax(logits, dim=1)
 
-                    p = get_foreground_prob(logits)  # p: (B, H, W)
-
-                    # 计算熵（不同实现可能返回不同形状）
-                    entmap = compute_entropy(p)  # 可能是 (B,H,W) / (B,1,H,W) / (B,K) / (H,W) / (B,)
-
-                    # ---- 统一到“每样本一行”的形状，再做均值得到每样本一个分数 ----
-                    # 1) 确保有 batch 维
-                    if entmap.dim() == 2:  # (H, W) -> batch 被挤掉
-                        entmap = entmap.unsqueeze(0)  # (1, H, W)
-
-                    # 2) 压掉通道维（如果有）
-                    if entmap.dim() == 4:  # (B, C, H, W)
-                        if entmap.size(1) == 1:
-                            entmap = entmap[:, 0]  # (B, H, W)
-                        else:
-                            entmap = entmap.mean(1)  # (B, H, W) 多通道取均值（或改成取特定通道）
-
-                    # 3) 展平成 (B, -1)，逐样本取均值 -> (B,)
-                    if entmap.dim() == 3:  # (B, H, W)
-                        entvec = entmap.flatten(1).mean(1)
-                    elif entmap.dim() == 2:  # (B, K)
-                        entvec = entmap.mean(1)
-                    elif entmap.dim() == 1:  # (B,)
-                        entvec = entmap
-                    else:
-                        raise RuntimeError(f"Unexpected entropy map shape: {tuple(entmap.shape)}")
+                    p = get_foreground_prob(logits)  # (B,H,W), 前景概率
+                    eps = 1e-8
+                    entvec = -(p.clamp(eps, 1 - eps) * (p.clamp(eps, 1 - eps)).log()
+                               + (1 - p).clamp(eps, 1 - eps) * (1 - p).clamp(eps, 1 - eps).log()
+                               ).flatten(1).mean(1)
 
                     # 数值清理，防 NaN/Inf
                     entvec = torch.nan_to_num(entvec, nan=0.0, posinf=0.0, neginf=0.0)  # (B,)
