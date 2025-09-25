@@ -84,7 +84,6 @@ class CervixDataset(Dataset):
                  enable_roi: bool = False,
                  pad_ratio: float = 0.1,
                  roi_mode: str = "auto",
-                 return_idx: bool = False,
                  use_mask_on_valtest: bool = False):
         """
         Initialize the dataset with CSV metadata and image/mask directories.
@@ -111,7 +110,6 @@ class CervixDataset(Dataset):
         self.roi_mode = roi_mode
         self.use_mask_on_valtest = use_mask_on_valtest
         self.split = set_filter or ""
-        self.return_idx = return_idx
 
         self.transform = get_transform(target_size, normalize, augment=False, is_mask=False)
         self.mask_transform = get_transform(target_size, normalize=False, augment=False, is_mask=True)
@@ -337,10 +335,13 @@ class CervixUnlabeledImages(Dataset):
                  image_dir: str,
                  target_size: Tuple[int, int] = (512, 512),
                  normalize: bool = True,
-                 set_filter: str = 'train'):
+                 set_filter: str = 'train',
+                 return_idx: bool = False
+                 ):
         self.image_dir = image_dir
         self.target_size = target_size
         self.transform = get_transform(target_size, normalize, augment=False, is_mask=False)
+        self.return_idx = return_idx
 
         df = pd.read_csv(csv_path) if isinstance(csv_path, str) else csv_path.copy()
         if set_filter:
