@@ -79,8 +79,24 @@ class EntropySampler(BaseSampler):
                     logits = self.model(x)  # (B,C,H,W)
                     # probs = F.softmax(logits, dim=1)
                     probs = get_foreground_prob(logits)
-                    entmap = compute_entropy(probs)  # (B,H,W)
-                    entvec = entmap.mean(dim=(1, 2))  # (B,)
+                    entmap = compute_entropy(probs)
+                    print("probs", probs.shape, "entmap", entmap.shape)
+
+                    # --- 统一形状为 (B,H,W) ---
+                    if entmap.dim() == 4:
+                        # 可能是 (B,1,H,W) 或 (B,C,H,W)，先压掉通道
+                        if entmap.size(1) == 1:
+                            entmap = entmap[:, 0]  # (B,H,W)
+                        else:
+                            entmap = entmap.mean(dim=1)  # (B,H,W) 多类取均值熵（或你也可以改成前景通道）
+                    elif entmap.dim() == 2:
+                        # 可能是 (H,W)（batch 被 squeeze 掉了）
+                        entmap = entmap.unsqueeze(0)  # (1,H,W)
+                    elif entmap.dim() != 3:
+                        raise RuntimeError(f"Unexpected entropy map shape: {tuple(entmap.shape)}")
+
+                    # --- 统一后，再求每张图的均值熵 ---
+                    entvec = entmap.flatten(1).mean(dim=1)  # (B,)
 
                     # -------- ④ collect -------------------------
                     all_indices.extend(idx)
