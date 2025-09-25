@@ -641,8 +641,6 @@ def validate_visualize_sample(
     val_metrics = evaluate_basic(
         trainer.model, v_loader, device,
         threshold=infer_thr,
-        keep_largest_cc=train_cfg.get("inference", {}).get("keep_largest_cc", False),
-        min_cc_area=int(train_cfg.get("inference", {}).get("min_cc_area", 0))
     )
     # 把当轮阈值也写进 metrics 便于追踪
     val_metrics["thr"] = infer_thr
