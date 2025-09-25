@@ -599,50 +599,22 @@ def validate_visualize_sample(
         budget: int,
         device: torch.device,
         model_name: str,
-        threshold: Optional[float] = None   # ← 新增：可选阈值（上一轮 best_thr）
+        threshold: Optional[float] = None   # ← 入参保留，但本函数内会先做 sweep 覆盖它
     ):
     """
-    One-stop post-training procedure:
+    One-stop post-training procedure (统一口径版本):
 
-    1. validate → save metrics
-    2. visualize predictions
-    3. (except last round) sample new indices + mark pool.csv
-    4. return (validation metrics, best_thr_from_val)
+    A) sweep 阈值 → 取 best_thr
+    B) 用 best_thr 做验证 evaluate_basic() 并落盘 round_metrics
+    C) 用 best_thr 存可视化（与验证同阈值）
+    D) (非最后一轮) 采样并回写 pool.csv
+    E) 返回 (val_metrics@best_thr, best_thr)
     """
     round_name = f"round{rnd}"
-
-    # 统一推理阈值：优先用传入 threshold，否则用配置兜底
-    infer_thr = float(threshold) if (threshold is not None) \
-        else float(train_cfg.get("inference", {}).get("threshold", 0.5))
-
-    # ---------- 1) validate ----------
     bs = train_cfg.get("batch_size", train_cfg.get("train", {}).get("batch_size", 4))
     v_loader = DataLoader(val_ds, batch_size=bs, shuffle=False, num_workers=0)
 
-    val_metrics = evaluate_basic(trainer.model, v_loader, device, threshold=infer_thr)
-    save_round_metrics(
-        round_id=rnd,
-        metrics=val_metrics,
-        save_path=os.path.join(dirs["results"], "round_metrics.csv"),
-        strategy=sampling_strategy,
-        model_name=model_name,
-        pool_csv=pool_csv
-    )
-
-    # ---------- 2) visualize ----------
-    viz_dir = os.path.join(dirs["visualizations"], round_name)
-    visualize_predictions_overlay(
-        model=trainer.model,
-        dataset=val_ds,
-        device=device,
-        save_dir=viz_dir,
-        num_samples=data_cfg.get("validation", {}).get("val_visualization_samples", 6),
-        threshold=infer_thr,            # ← 和验证一致
-        keep_largest_cc=True,
-        min_cc_area=50
-    )
-
-    # ---------- 2.5) sweep 阈值并画曲线 ----------
+    # ---------- A) sweep 阈值（当前轮） ----------
     sweep_dir = os.path.join(dirs["results"], f"{round_name}_sweep")
     thr_list = np.linspace(0.10, 0.80, 21)
     sweep_info = sweep_thresholds_and_plot(
@@ -654,15 +626,50 @@ def validate_visualize_sample(
         keep_largest_cc=False,
         min_cc_area=0
     )
+    best_thr_from_val = float(sweep_info["best_thr"])
     logger.info(
-        f"[Val sweep] Best Dice @ thr={sweep_info['best_thr']:.2f} "
+        f"[Val sweep] Best Dice @ thr={best_thr_from_val:.2f} "
         f"→ P={sweep_info['prec_at_best']:.3f} "
         f"R={sweep_info['rec_at_best']:.3f} "
         f"Dice={sweep_info['dice_at_best']:.3f}"
     )
-    best_thr_from_val = float(sweep_info["best_thr"])
 
-    # ---------- 3) sampling ----------
+    # 统一本轮“推理阈值”：优先用本轮 sweep 的 best_thr
+    infer_thr = best_thr_from_val
+
+    # ---------- B) 用 best_thr 做验证并落盘 ----------
+    val_metrics = evaluate_basic(
+        trainer.model, v_loader, device,
+        threshold=infer_thr,
+        keep_largest_cc=train_cfg.get("inference", {}).get("keep_largest_cc", False),
+        min_cc_area=int(train_cfg.get("inference", {}).get("min_cc_area", 0))
+    )
+    # 把当轮阈值也写进 metrics 便于追踪
+    val_metrics["thr"] = infer_thr
+
+    save_round_metrics(
+        round_id=rnd,
+        metrics=val_metrics,
+        save_path=os.path.join(dirs["results"], "round_metrics.csv"),
+        strategy=sampling_strategy,
+        model_name=model_name,
+        pool_csv=pool_csv
+    )
+
+    # ---------- C) 用同一个阈值做可视化 ----------
+    viz_dir = os.path.join(dirs["visualizations"], round_name)
+    visualize_predictions_overlay(
+        model=trainer.model,
+        dataset=val_ds,
+        device=device,
+        save_dir=viz_dir,
+        num_samples=data_cfg.get("validation", {}).get("val_visualization_samples", 6),
+        threshold=infer_thr,               # ★ 与验证一致
+        keep_largest_cc=True,
+        min_cc_area=50
+    )
+
+    # ---------- D) 采样（非最后一轮） ----------
     if rnd < total_iters - 1:
         logger.info("🎯 Sampling new indices for next round …")
 
@@ -689,6 +696,7 @@ def validate_visualize_sample(
                     f"(total labeled = {pool_df['labeled'].sum()})")
 
     return val_metrics, best_thr_from_val
+
 
 
 def active_learning_loop(
@@ -865,7 +873,7 @@ def active_learning_loop(
             val_ds=val_ds, full_train_ds=full_train_ds,
             dirs=dirs, train_cfg=train_config, data_cfg=data_config,
             pool_csv=pool_csv, sampling_strategy=sampling_strategy,
-            budget=budget, device=device, model_name=model_name, threshold=best_thr_last)
+            budget=budget, device=device, model_name=model_name)
 
         # 让 full_train_ds 与最新 pool.csv 保持同步
         _pool_latest = pd.read_csv(pool_csv)[["new_image_name", "labeled"]]
@@ -882,6 +890,7 @@ def active_learning_loop(
             "best_dice": trainer.best_dice,
             "best_dice_round": trainer.best_dice_round,
             "time_min": (time.time() - round_start) / 60,
+            "best_thr": float(best_thr_last),
         })
         results["total_samples_per_round"].append(len(train_ds))
         results["val_metrics_per_round"].append(val_metrics)

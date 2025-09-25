@@ -470,7 +470,7 @@ class Trainer:
 
         return total_loss / num_batches
 
-    def validate(self) -> Tuple[float, Dict[str, float]]:
+    def validate(self, thr: Optional[float] = None) -> Tuple[float, Dict[str, float]]:
         """
         Validate the model and compute loss & metrics with a unified evaluation path:
         - logits -> get_foreground_prob() 统一取前景概率
@@ -480,11 +480,9 @@ class Trainer:
         self.model.eval()
         total_loss = 0.0
 
-        # === 阈值：统一从配置读取（默认 0.5） ===
-        thr = (
+        # === 选用阈值：优先用调用者传入的 thr；否则回退到 config ===
+        selected_thr = float(thr) if thr is not None else float(
             self.config.get("inference", {}).get("threshold", 0.5)
-            if hasattr(self, "config") and isinstance(self.config, dict)
-            else 0.5
         )
 
         # === Reset metrics ===
@@ -536,7 +534,7 @@ class Trainer:
 
                 # === 统一指标口径：概率 -> 二值 -> one-hot(2通道) ===
                 probs = get_foreground_prob(logits)  # [B,H,W] 概率，项目里已有实现
-                pred_discrete = (probs > thr).long()  # [B,H,W] {0,1}
+                pred_discrete = (probs > selected_thr).long()   # [B,H,W] {0,1}
 
                 # label_index: [B,H,W] {0,1}
                 if masks.dim() == 4 and masks.size(1) == 1:
@@ -558,7 +556,7 @@ class Trainer:
                 # HausdorffDistanceMetric 对空掩膜会有告警，交给 try/except 聚合时兜底
                 self.hausdorff_metric(y_pred=pred_oh, y=label_oh)
 
-                progress_bar.set_postfix({"Val Loss": f"{loss.item():.4f}", "thr": f"{thr:.2f}"})
+                progress_bar.set_postfix({"Val Loss": f"{loss.item():.4f}", "thr": f"{selected_thr:.2f}"})
 
         # === 聚合 ===
         avg_loss = total_loss / max(len(self.val_loader), 1)
@@ -574,7 +572,7 @@ class Trainer:
             "dice": dice_score,
             "iou": iou_score,
             "hausdorff95": hausdorff_score,
-            "thr": thr,
+            "thr": selected_thr,
         }
 
         # 维护 best 记录
@@ -585,6 +583,13 @@ class Trainer:
             self.best_dice = dice_score
 
         return avg_loss, metrics
+
+    def validate_with_threshold(self, best_thr: float) -> Tuple[float, Dict[str, float]]:
+        """
+        用外部扫出来的 best_thr 做一次验证（与可视化保持一致口径）。
+        返回：与 validate 相同 (avg_loss, metrics)；metrics['thr']==best_thr
+        """
+        return self.validate(thr=best_thr)
 
     def save_checkpoint(self, epoch: int, is_best: bool = False,
                         interval: int = 5, max_to_keep: int = 3,
