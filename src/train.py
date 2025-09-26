@@ -31,7 +31,7 @@ project_root = os.path.abspath(os.path.join(file_dir, ".."))
 if project_root not in sys.path:
     sys.path.append(project_root)
 
-from model.DeepLabV3Plus import DeepLabV3Plus
+from model.factory import build_model
 from dataset import create_datasets, set_seed, CervixDataset
 from trainer import Trainer, GradualWarmupScheduler
 from sampling.active_sampling import sample_new_indices
@@ -755,7 +755,7 @@ def active_learning_loop(
     train_ds0, val_ds0 = ds_round0["train"], ds_round0["val"]
 
     # ------------------  round0 模型 & Trainer -----------
-    model   = DeepLabV3Plus(model_config)
+    model = build_model(model_name, model_config)
     conf0   = train_config.copy()
     conf0["save_dir"] = os.path.join(dirs["checkpoints"], "round0")
     trainer = Trainer(model, train_ds0, val_ds0, conf0)

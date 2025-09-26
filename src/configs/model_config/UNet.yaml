@@ -1,0 +1,5 @@
+# configs/model_config/UNet.yaml
+model_name: "UNet"
+in_channels: 3
+base_channels: 64
+num_classes: 2
