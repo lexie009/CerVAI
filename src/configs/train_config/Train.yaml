@@ -1,7 +1,7 @@
 batch_size: 4
 num_epochs: 50
 num_workers: 4
-early_stopping_patience: 15
+early_stopping_patience: 30
 
 optimizer:
   name: Adam
@@ -14,11 +14,11 @@ optimizer:
 loss:
   name: Tversky
   params:
-    alpha: 0.7
-    beta: 0.3
+    alpha: 0.85
+    beta: 0.15
 
 inference:
-  threshold: 0.50
+  threshold: 0.10
   keep_largest_cc: true
   min_cc_area: 50
 
