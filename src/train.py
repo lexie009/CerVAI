@@ -23,7 +23,7 @@ from typing import Dict, Any, List, Optional
 import matplotlib.pyplot as plt
 from datetime import datetime
 import shutil
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 # Add project root to path
 file_dir = os.path.dirname(os.path.abspath(__file__))
@@ -46,7 +46,8 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler()
-    ]
+    ],
+    force=True
 )
 logger = logging.getLogger(__name__)
 
@@ -800,6 +801,10 @@ def active_learning_loop(
         logger.info(f"🔁 {round_name} / {total_iters - 1}  —  {sampling_strategy}")
         logger.info("=" * 60)
         round_start = time.time()
+
+        tqdm.write("=" * 60)
+        tqdm.write(f"🔁 {round_name} / {total_iters - 1} — {sampling_strategy}")
+        tqdm.write("=" * 60)
 
         pool_df = pd.read_csv(pool_csv)  # refresh
         unlabeled_idx = pool_df.query("set == 'train' and labeled == 0").index.tolist()

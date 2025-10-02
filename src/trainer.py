@@ -9,7 +9,7 @@ import random
 import os
 import logging
 from typing import Dict, Any, Optional, Tuple
-from tqdm import tqdm
+from tqdm.auto import tqdm
 import time
 from pathlib import Path
 from monai.losses import DiceCELoss, TverskyLoss, FocalLoss
@@ -278,7 +278,8 @@ class Trainer:
             handlers=[
                 logging.FileHandler(log_file),
                 logging.StreamHandler()
-            ]
+            ],
+            force=True
         )
         self.logger = logging.getLogger(__name__)
 
@@ -465,6 +466,7 @@ class Trainer:
                         n_has_grad += 1
                 g_mean = g_sum / max(n_has_grad, 1)
                 self.logger.info(f"[GRAD-PROBE] mean(|grad|) on first batch = {g_mean:.6e}")
+                progress_bar.write(f"[GRAD-PROBE] mean(|grad|) on first batch = {g_mean:.6e}")
 
             self.optimizer.step()
             
@@ -561,8 +563,11 @@ class Trainer:
                             f"[FG-prob] min={q.min():.3f} p50={p50:.3f} mean={q.mean():.3f} "
                             f"max={q.max():.3f} | >thr({selected_thr:.2f})={frac:.3f}"
                         )
+                        progress_bar.write(f"[FG-prob] min={q.min():.3f} p50={p50:.3f} mean={q.mean():.3f} "
+                            f"max={q.max():.3f} | >thr({selected_thr:.2f})={frac:.3f}")
                     else:
                         self.logger.info("[FG-prob] all probs invalid (empty after filtering)")
+
                     self._logged_fg_probe = True
                 # label_index: [B,H,W] {0,1}
                 if masks.dim() == 4 and masks.size(1) == 1:
