@@ -455,6 +455,17 @@ class Trainer:
             loss = self.criterion(outputs, masks)
             
             loss.backward()
+
+            # --- 在 loss.backward() 之后、optimizer.step() 之前插入 ---
+            if (self.current_epoch == 0) and (batch_idx == 0):
+                g_sum, n_has_grad = 0.0, 0
+                for _, p in self.model.named_parameters():
+                    if p.grad is not None:
+                        g_sum += p.grad.detach().abs().mean().item()
+                        n_has_grad += 1
+                g_mean = g_sum / max(n_has_grad, 1)
+                self.logger.info(f"[GRAD-PROBE] mean(|grad|) on first batch = {g_mean:.6e}")
+
             self.optimizer.step()
             
             total_loss += loss.item()
@@ -480,6 +491,8 @@ class Trainer:
         self.model.eval()
         total_loss = 0.0
 
+        self._logged_fg_probe = False
+
         # === 选用阈值：优先用调用者传入的 thr；否则回退到 config ===
         selected_thr = float(thr) if thr is not None else float(
             self.config.get("inference", {}).get("threshold", 0.5)
@@ -493,7 +506,7 @@ class Trainer:
         progress_bar = tqdm(self.val_loader, desc=f"Epoch {self.current_epoch + 1} Validation")
 
         with torch.no_grad():
-            for batch in progress_bar:
+            for b_idx, batch in enumerate(progress_bar):
                 # 兼容 (images, masks, idx) / dict batch
                 if isinstance(batch, (list, tuple)):
                     images, masks = batch[0], batch[1]
@@ -536,6 +549,21 @@ class Trainer:
                 probs = get_foreground_prob(logits)  # [B,H,W] 概率，项目里已有实现
                 pred_discrete = (probs > selected_thr).long()   # [B,H,W] {0,1}
 
+                # [PROBE-2] foreground-prob quick stats (log once per validate)
+                if (b_idx == 0) and (not getattr(self, "_logged_fg_probe", False)):
+                    q = probs.detach().reshape(-1).float().cpu()
+                    # 过滤 NaN/Inf，避免 .min/.mean 报错
+                    q = q[torch.isfinite(q)]
+                    if q.numel() > 0:
+                        p50 = q.median().item()
+                        frac = (q > selected_thr).float().mean().item()
+                        self.logger.info(
+                            f"[FG-prob] min={q.min():.3f} p50={p50:.3f} mean={q.mean():.3f} "
+                            f"max={q.max():.3f} | >thr({selected_thr:.2f})={frac:.3f}"
+                        )
+                    else:
+                        self.logger.info("[FG-prob] all probs invalid (empty after filtering)")
+                    self._logged_fg_probe = True
                 # label_index: [B,H,W] {0,1}
                 if masks.dim() == 4 and masks.size(1) == 1:
                     label_index = masks[:, 0, ...]

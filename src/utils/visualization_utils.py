@@ -399,6 +399,13 @@ def visualize_predictions_overlay(model: torch.nn.Module,
             pred = (prob > float(threshold))
             pred = _apply_cc_filter(pred, keep_largest_cc=keep_largest_cc, min_cc_area=min_cc_area)
 
+            # --- debug: dump prob stats once ---
+            vals = prob.astype(np.float32).ravel()
+            if not hasattr(model, "_dumped_prob_stats"):
+                print(
+                    f"[DEBUG] prob min={vals.min():.4f} max={vals.max():.4f} p<0.1={(vals < 0.1).mean():.3f} p>0.8={(vals > 0.8).mean():.3f}")
+                model._dumped_prob_stats = True
+
             tp = gt & pred
             fn = gt & (~pred)
             fp = (~gt) & pred
@@ -478,6 +485,13 @@ def sweep_thresholds_and_plot(model: torch.nn.Module,
 
             logits = _tta_logits(model, images)  # ← 用 TTA
             prob = get_foreground_prob(logits)[0].cpu().numpy()  # ← 统一取前景概率
+
+            # --- debug: dump prob stats once ---
+            vals = prob.astype(np.float32).ravel()
+            if not hasattr(model, "_dumped_prob_stats"):
+                print(
+                    f"[DEBUG] prob min={vals.min():.4f} max={vals.max():.4f} p<0.1={(vals < 0.1).mean():.3f} p>0.8={(vals > 0.8).mean():.3f}")
+                model._dumped_prob_stats = True
 
             t_tp, t_fp, t_fn, t_tn = [], [], [], []
             for thr in thresholds:

@@ -158,7 +158,8 @@ class CervixDataset(Dataset):
 
         image = Image.open(img_path).convert("RGB")
         mask = Image.open(mask_path).convert("L")
-        logging.debug(f"Opened mask: {mask_path}, original size: {mask.size}")
+        logging.info(f"Opened mask: {mask_path}, original size: {mask.size}")
+
 
         if self.enable_roi:
             # 若掩码全 0，crop_by_mask 会直接 return 原图
@@ -180,10 +181,22 @@ class CervixDataset(Dataset):
         else:
             image = image.resize(self.target_size, resample=Image.BILINEAR)
             mask = mask.resize(self.target_size, resample=Image.NEAREST)
-            logging.debug(f"Resized mask size (PIL): {mask.size}")
+            logging.info(f"Resized mask size (PIL): {mask.size}")
+
+
+        # [PROBE-1] ensure mask ∈ {0,1} (or {0,255}); if not, warn & binarize (>0)
+        m = np.array(mask, dtype=np.uint8)
+        u = np.unique(m)
+
+        if not set(u.tolist()) <= {0, 1, 255}:
+            logging.warning(f"[DATA] Non-binary mask values {u[:6]} ... binarizing (>0) @ {mask_path}")
+            m = (m > 0).astype(np.uint8) * 255  # → {0,255}
+            mask = Image.fromarray(m, mode="L")
+        elif m.max() == 0:
+            logging.info(f"[DATA] All-zero mask @ {mask_path}")
 
         mask_tensor_before = T.ToTensor()(mask)  # don't use self.mask_transform here yet
-        logging.debug(f"Tensor shape before squeeze: {mask_tensor_before.shape}")
+        logging.info(f"Tensor shape before squeeze: {mask_tensor_before.shape}")
 
         # If you want to catch mismatch early
         if mask_tensor_before.shape[1:] != self.target_size:

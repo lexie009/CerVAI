@@ -112,7 +112,7 @@ transform:
     rotation: 10
 
 roi:
-  enable_train: true
+  enable_train: false
   enable_val: false
   enable_test: false
   pad_ratio: 0.10

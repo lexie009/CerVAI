@@ -663,8 +663,8 @@ def validate_visualize_sample(
         save_dir=viz_dir,
         num_samples=data_cfg.get("validation", {}).get("val_visualization_samples", 6),
         threshold=infer_thr,               # ★ 与验证一致
-        keep_largest_cc=True,
-        min_cc_area=50
+        keep_largest_cc=False,
+        min_cc_area=0
     )
 
     # ---------- D) 采样（非最后一轮） ----------

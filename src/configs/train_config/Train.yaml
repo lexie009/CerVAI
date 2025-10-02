@@ -14,8 +14,8 @@ optimizer:
 loss:
   name: Tversky
   params:
-    alpha: 0.85
-    beta: 0.15
+    alpha: 0.70
+    beta: 0.30
 
 inference:
   threshold: 0.10
