@@ -773,6 +773,9 @@ def active_learning_loop(
 
     trainer.train()
 
+    if hasattr(train_ds0, "log_summary"): train_ds0.log_summary(reset=True)
+    if hasattr(val_ds0, "log_summary"): val_ds0.log_summary(reset=True)
+
     semi_cfg = train_config.get('semi', {})
     if semi_cfg.get('enable', False):
         u_loader = build_unlabeled_loader(data_config, pool_csv, batch_size=train_config['batch_size'])
@@ -786,6 +789,7 @@ def active_learning_loop(
                 min_area=int(semi_cfg.get('min_area', 50)),
                 ignore_border_px=int(semi_cfg.get('ignore_border_px', 2)),
             )
+
 
     val_metrics0, best_thr_last = validate_visualize_sample(
         rnd=0, total_iters=total_iters, trainer=trainer,
@@ -814,6 +818,18 @@ def active_learning_loop(
         train_ds, val_ds = (datasets["train"], datasets["val"])
         if len(train_ds) == 0:
             raise RuntimeError("train_dataset empty – check warm-start / CSV")
+
+        # === 🔧 [ADD] 限制详细样本日志条数，避免日志爆炸 ===
+        if hasattr(train_ds, "_set_dbg_limit"):
+            train_ds._set_dbg_limit(20)
+        else:
+            setattr(train_ds, "_dbg_limit", 20);
+            setattr(train_ds, "_dbg_seen", 0)
+        if hasattr(val_ds, "_set_dbg_limit"):
+            val_ds._set_dbg_limit(10)
+        else:
+            setattr(val_ds, "_dbg_limit", 10);
+            setattr(val_ds, "_dbg_seen", 0)
 
         # ---------- 2. model + trainer ----------
         trainer.update_datasets(train_ds, val_ds, reset_early_stopping=True)

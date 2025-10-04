@@ -454,6 +454,22 @@ class Trainer:
 
             outputs = self.model(images)
             loss = self.criterion(outputs, masks)
+
+            if self.current_epoch == 0 and batch_idx < 2:
+                with torch.no_grad():
+                    # 假设二分类输出 [B,2,H,W]；若是一通道 sigmoid，请改成 torch.sigmoid(out[:,0])
+                    prob = torch.softmax(outputs, dim=1)
+                    fg = prob[:, 1]
+                    bg = prob[:, 0]
+                    self.logger.info(
+                        "[PROB-DIST] ep=%d it=%d fg[mean=%.4f, std=%.4f] "
+                        "bg[mean=%.4f, std=%.4f] p_fg>0.5=%.3f p_fg>0.8=%.3f" %
+                        (self.current_epoch, batch_idx,
+                         fg.mean().item(), fg.std().item(),
+                         bg.mean().item(), bg.std().item(),
+                         (fg > 0.5).float().mean().item(),
+                         (fg > 0.8).float().mean().item())
+                    )
             
             loss.backward()
 
@@ -550,6 +566,61 @@ class Trainer:
                 # === 统一指标口径：概率 -> 二值 -> one-hot(2通道) ===
                 probs = get_foreground_prob(logits)  # [B,H,W] 概率，项目里已有实现
                 pred_discrete = (probs > selected_thr).long()   # [B,H,W] {0,1}
+
+                # === [PROBE: channel-swap sanity] 只在前2个batch打印 ===
+                try:
+                    # 统一得到 “前景概率(ch1)” 和 “背景概率(ch0)”
+                    if logits.shape[1] == 2:  # 双通道
+                        prob2 = torch.softmax(logits, dim=1)  # [B,2,H,W]
+                        fg1 = prob2[:, 1]  # 前景通道（你当前假设）
+                        fg0 = prob2[:, 0]  # 背景通道
+                    else:  # 单通道模型的容错写法（sigmoid 前景）
+                        p1 = torch.sigmoid(logits[:, 0])  # [B,1,H,W] or [B,H,W]
+                        p1 = p1 if p1.dim() == 3 else p1.squeeze(1)
+                        fg1 = p1
+                        fg0 = 1.0 - p1
+
+                    thr_ = float(selected_thr)
+
+                    # 统一得到 [B,H,W] 的GT索引图 y_index
+                    if self.loss_needs_channel:
+                        # 你上面为了loss可能构造了 masks_for_loss=[B,1,H,W]
+                        if masks_for_loss.dim() == 4 and masks_for_loss.size(1) == 1:
+                            y_index = masks_for_loss.squeeze(1)  # [B,H,W]
+                        else:
+                            # 若是 one-hot 就降成 index
+                            y_index = masks_for_loss.argmax(dim=1) if masks_for_loss.dim() == 4 else masks_for_loss
+                    else:
+                        # 你上面让 masks_for_loss 已经是 [B,H,W]
+                        y_index = masks_for_loss  # [B,H,W]
+
+                    # 预测二值图（分别假设 ch1 与 ch0 为前景）
+                    pred1 = (fg1 > thr_).float()  # [B,H,W]
+                    pred0 = (fg0 > thr_).float()  # [B,H,W]
+                    y = y_index.float()
+
+                    eps = 1e-6
+                    # 按batch算Dice（简化版）
+                    inter1 = (pred1 * y).sum(dim=(1, 2))
+                    dice1 = (2 * inter1) / (pred1.sum(dim=(1, 2)) + y.sum(dim=(1, 2)) + eps)
+                    inter0 = (pred0 * y).sum(dim=(1, 2))
+                    dice0 = (2 * inter0) / (pred0.sum(dim=(1, 2)) + y.sum(dim=(1, 2)) + eps)
+
+                    # 简易像素级混淆（按 ch1 假设）
+                    tp = (pred1 * y).sum().item()
+                    fp = (pred1 * (1 - y)).sum().item()
+                    fn = ((1 - pred1) * y).sum().item()
+
+                    if b_idx < 2:  # 只打头两批
+                        self.logger.info(
+                            f"[VAL-PROBE] thr={thr_:.2f} "
+                            f"Dice(fg=ch1)={dice1.mean().item():.4f} "
+                            f"Dice(fg=ch0)={dice0.mean().item():.4f} "
+                            f"TP={tp:.0f} FP={fp:.0f} FN={fn:.0f}"
+                        )
+                except Exception as e:
+                    if b_idx < 2:
+                        self.logger.warning(f"[VAL-PROBE] channel-swap probe failed: {e}")
 
                 # [PROBE-2] foreground-prob quick stats (log once per validate)
                 if (b_idx == 0) and (not getattr(self, "_logged_fg_probe", False)):

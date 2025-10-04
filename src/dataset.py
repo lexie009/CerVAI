@@ -28,46 +28,25 @@ def set_seed(seed: int = 42) -> None:
 
 
 def get_transform(target_size: Tuple[int, int] = (512, 512),
-                 normalize: bool = True,
-                 augment: bool = False,
-                 is_mask: bool = False) -> T.Compose:
+                  normalize: bool = True,
+                  augment: bool = False,
+                  is_mask: bool = False) -> T.Compose:
     """
     Get transform pipeline based on settings.
-    
-    Args:
-        target_size: Target size for resizing
-        normalize: Whether to apply normalization
-        augment: Whether to apply data augmentation (only for training)
-        is_mask: Whether this transform is for a mask
-        
-    Returns:
-        Composed transform pipeline
     """
     transform_list = []
-    
-    # Basic transforms
     transform_list.append(T.ToTensor())
-    
     if normalize and not is_mask:
-        # Only normalize images, not masks
         transform_list.append(
             T.Normalize(mean=[0.485, 0.456, 0.406],
-                       std=[0.229, 0.224, 0.225])
+                        std=[0.229, 0.224, 0.225])
         )
-    
     return T.Compose(transform_list)
 
 
 class CervixDataset(Dataset):
     """
-    PyTorch Dataset for loading cervix image-mask pairs.
-    Designed for semantic segmentation with optional active learning support.
-
-    Features:
-        - Supports binary masks for 2-class segmentation
-        - Optional augmentation and normalization
-        - Filters by dataset split (train/val/test)
-        - Filters by active learning round (e.g., round0 = True)
+    PyTorch Dataset for loading cervix image-mask pairs (semantic segmentation).
     """
 
     def __init__(self,
@@ -85,21 +64,6 @@ class CervixDataset(Dataset):
                  pad_ratio: float = 0.1,
                  roi_mode: str = "auto",
                  use_mask_on_valtest: bool = False):
-        """
-        Initialize the dataset with CSV metadata and image/mask directories.
-
-        Args:
-            csv_path: Path to metadata CSV or preloaded DataFrame
-            image_dir: Directory containing input images
-            mask_dir: Directory containing corresponding masks
-            target_size: Final (H, W) size for resizing
-            normalize: Whether to apply ImageNet normalization to images
-            augment: Whether to use data augmentation
-            set_filter: Dataset split filter ('train', 'val', 'test')
-            binary_mask: Whether to binarize masks to 0/1 values
-            round_column_filter: Active learning round filter (e.g., 'round0')
-            use_labeled_only: Whether to filter for labeled samples only
-        """
         self.image_dir = image_dir
         self.mask_dir = mask_dir
         self.target_size = target_size
@@ -111,45 +75,43 @@ class CervixDataset(Dataset):
         self.use_mask_on_valtest = use_mask_on_valtest
         self.split = set_filter or ""
 
+        # === Sanity/Debug 统计 & 限流 ===
+        self.logger = logging.getLogger(f"Dataset[{self.split}]")
+        self._dbg_limit = 5      # 只打印前 N 个样本的详细日志（可外部修改）
+        self._dbg_seen = 0       # 已经详细打印过的样本数
+
+        self._seen = 0           # 访问样本总数
+        self._cnt_allzero = 0    # 掩膜全 0 的样本数
+        self._cnt_allone = 0     # 掩膜全 1 的样本数
+        self._pos_sum = 0.0      # 正类像素比例累计（用于均值）
+
         self.transform = get_transform(target_size, normalize, augment=False, is_mask=False)
         self.mask_transform = get_transform(target_size, normalize=False, augment=False, is_mask=True)
 
-        # Load metadata from CSV or DataFrame
+        # 载入 CSV
         self.df = pd.read_csv(csv_path) if isinstance(csv_path, str) else csv_path.copy()
 
         if use_labeled_only:
-            self.df = self.df[self.df["labeled"] == 1]
+            self.df = self.df[self.df.get("labeled", 1) == 1]
 
-        # Apply dataset split filtering (e.g., only use 'train' set)
         if set_filter:
             self.df = self.df[self.df['set'] == set_filter]
 
-        # Filter by active learning round flag if provided
         if round_column_filter and round_column_filter in self.df.columns:
             self.df = self.df[self.df[round_column_filter] == True]
 
-        # Check that required columns exist
+        # 必需列检查
         required_cols = ['new_image_name', 'new_mask_name']
         for col in required_cols:
             if col not in self.df.columns:
                 raise ValueError(f"Missing required column: {col}")
 
     def __len__(self) -> int:
-        """
-        Return the number of samples in the dataset.
-        """
         return len(self.df)
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, Any]:
         """
-        Load and return a preprocessed (image, mask) pair.
-
-        Args:
-            idx: Sample index
-
-        Returns:
-            image: Tensor of shape [C, H, W]
-            mask: Tensor of shape [1, H, W] with optional binarization
+        返回预处理后的 (image, mask) 对
         """
         row = self.df.iloc[idx]
         global_id = row.name
@@ -158,14 +120,17 @@ class CervixDataset(Dataset):
 
         image = Image.open(img_path).convert("RGB")
         mask = Image.open(mask_path).convert("L")
-        logging.info(f"Opened mask: {mask_path}, original size: {mask.size}")
 
+        # ==== 单样本调试总开关（该样本是否允许打印）====
+        dbg_ok = self._dbg_seen < self._dbg_limit
+
+        if dbg_ok:
+            self.logger.info(f"[DATA/IO] Opened mask: {mask_path}, original size: {mask.size}")
 
         if self.enable_roi:
-            # 若掩码全 0，crop_by_mask 会直接 return 原图
+            # 掩膜全 0 时，crop_by_auto 会回退为原图
             img_np = np.array(image)
             mask_np = np.array(mask)
-
             img_np, mask_np = crop_by_auto(
                 img_np, mask_np,
                 mode=self.roi_mode,
@@ -174,65 +139,103 @@ class CervixDataset(Dataset):
                 pad_ratio=self.pad_ratio,
                 out_size=self.target_size
             )
-
             image = Image.fromarray(img_np)
             mask = Image.fromarray(mask_np)
-
         else:
             image = image.resize(self.target_size, resample=Image.BILINEAR)
             mask = mask.resize(self.target_size, resample=Image.NEAREST)
-            logging.info(f"Resized mask size (PIL): {mask.size}")
+            if dbg_ok:
+                self.logger.info(f"[DATA/IO] Resized mask size (PIL): {mask.size}")
 
-
-        # [PROBE-1] ensure mask ∈ {0,1} (or {0,255}); if not, warn & binarize (>0)
+        # === [PROBE-1] 变换前检查（并做限流打印） ===
         m = np.array(mask, dtype=np.uint8)
         u = np.unique(m)
 
+        self._seen += 1
+        pos_ratio_pre = float((m > 0).mean())
+        if pos_ratio_pre < 1e-6:
+            self._cnt_allzero += 1
+        if pos_ratio_pre > 1.0 - 1e-6:
+            self._cnt_allone += 1
+        self._pos_sum += pos_ratio_pre
+
+        if dbg_ok:
+            self.logger.info(
+                f"[DATA/SANITY:pre] {self.split} sample={row['new_image_name']} "
+                f"img_size={image.size} mask_size={mask.size} "
+                f"mask_uniq={u.tolist()[:6]} pos_ratio={pos_ratio_pre:.4f}"
+            )
+
         if not set(u.tolist()) <= {0, 1, 255}:
-            logging.warning(f"[DATA] Non-binary mask values {u[:6]} ... binarizing (>0) @ {mask_path}")
-            m = (m > 0).astype(np.uint8) * 255  # → {0,255}
+            self.logger.warning(f"[DATA] Non-binary mask values {u[:6]} ... binarizing (>0) @ {mask_path}")
+            m = (m > 0).astype(np.uint8) * 255
             mask = Image.fromarray(m, mode="L")
-        elif m.max() == 0:
-            logging.info(f"[DATA] All-zero mask @ {mask_path}")
+        elif m.max() == 0 and dbg_ok:
+            self.logger.info(f"[DATA] All-zero mask @ {mask_path}")
 
-        mask_tensor_before = T.ToTensor()(mask)  # don't use self.mask_transform here yet
-        logging.info(f"Tensor shape before squeeze: {mask_tensor_before.shape}")
+        mask_tensor_before = T.ToTensor()(mask)
+        if dbg_ok:
+            self.logger.info(f"[DATA/TENSOR] Mask tensor before squeeze: {tuple(mask_tensor_before.shape)}")
 
-        # If you want to catch mismatch early
         if mask_tensor_before.shape[1:] != self.target_size:
-            print(f"[ERROR] ❌ Mask tensor shape mismatch: {mask_tensor_before.shape} from {mask_path}")
+            # 这种错误应无条件提示
+            print(f"[ERROR] ❌ Mask tensor shape mismatch: {tuple(mask_tensor_before.shape)} from {mask_path}")
 
+        # === 同步几何增强（只在 train）===
         if self.augment:
-            # 几何增强（同步）
             image, mask = self._sync_geom_aug(image, mask)
-
-            # 可选：只对图像做“光照/颜色”增强（不影响 mask）
+            # 颜色增强（只作用在 image）
             if random.random() < 0.5:
                 cj = T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2)
                 image = cj(image)
 
+        # === 转 Tensor / 归一化 ===
         image = self.transform(image)
         mask = self.mask_transform(mask)
 
-        if self.binary_mask:
-            # Ensure binary mask (0 or 1), required by CrossEntropyLoss
-            mask = (mask > 0.5).long().squeeze(0)  # Tensor [H, W] with values 0 or 1
-        else:
-            mask = mask.long().squeeze(0)  # just in case of multi-class mask
+        # === [PROBE-2] 变换后检查（限流打印） ===
+        mask_after_t = mask.clone()
+        uniq_after = torch.unique(mask_after_t)
+        pos_ratio_after = float((mask_after_t > 0.5).float().mean().item())
 
-        assert mask.dtype == torch.long and mask.ndim == 2 and mask.max() <= 1, f"Invalid mask: {mask.unique()}"
+        if dbg_ok:
+            self.logger.info(
+                f"[DATA/SANITY:postT] {self.split} sample={row['new_image_name']} "
+                f"img[tensor] min/max/mean=({image.min():.3f},{image.max():.3f},{image.mean():.3f}) "
+                f"mask_uniq={uniq_after.tolist()} pos_ratio={pos_ratio_after:.4f} "
+                f"tensor_shape(img,mask)={[tuple(image.shape), tuple(mask_after_t.shape)]}"
+            )
+
+        # 将 mask→long，二类分割阈值 0.5
+        if self.binary_mask:
+            mask = (mask > 0.5).long().squeeze(0)
+        else:
+            mask = mask.long().squeeze(0)
+
+        assert mask.dtype == torch.long and mask.ndim == 2 and mask.max() <= 1, \
+            f"Invalid mask: {mask.unique()}"
+
+        # 该样本的详细日志已输出完毕，增加计数
+        if dbg_ok:
+            self._dbg_seen += 1
 
         return image, mask, global_id
 
+    def log_summary(self):
+        n = max(1, self._seen)
+        self.logger.info(
+            f"[DATA/SUMMARY] split={self.split} seen={self._seen} "
+            f"all_zero={self._cnt_allzero} all_one={self._cnt_allone} "
+            f"pos_ratio_mean={self._pos_sum / n:.4f}"
+        )
+
     def _sync_geom_aug(self, image_pil, mask_pil):
-        """ data augumentation on both image and mask return PIL.Image"""
-        # 1) 水平翻转
+        """ data augmentation on both image and mask (PIL→PIL) """
         if random.random() < 0.5:
             image_pil = F.hflip(image_pil)
             mask_pil = F.hflip(mask_pil)
 
-        # 2) 随机仿射（含旋转+平移；不缩放、不剪切）
-        angle = random.uniform(-10, 10)  # 旋转角度
+        angle = random.uniform(-10, 10)
         W, H = image_pil.size
         max_dx, max_dy = 0.10 * W, 0.10 * H
         tx = random.uniform(-max_dx, max_dx)
@@ -246,27 +249,16 @@ class CervixDataset(Dataset):
             mask_pil, angle=angle, translate=(tx, ty), scale=1.0, shear=(0.0, 0.0),
             interpolation=InterpolationMode.NEAREST, fill=0
         )
-
         return image_pil, mask_pil
 
     def get_sample_info(self, idx: int) -> Dict[str, Any]:
-        """
-        Return paths and metadata for a sample.
-
-        Args
-        ----
-        idx : int
-            Either the *global CSV index* or the *positional index* inside this
-            filtered DataFrame.
-        """
+        """Return paths and metadata for a sample."""
         if idx in self.df.index:
             row = self.df.loc[idx]
         elif 0 <= idx < len(self.df):
             row = self.df.iloc[idx]
         else:
-            raise IndexError( f"Index {idx} neither a label in df.index",
-                f"nor a valid positional idx (0-{len(self.df) - 1})"
-                )
+            raise IndexError(f"Index {idx} invalid (0-{len(self.df)-1} or a valid df.index label).")
         return {
             "image_path": os.path.join(self.image_dir, row["new_image_name"]),
             "mask_path": os.path.join(self.mask_dir, row["new_mask_name"]),
@@ -275,12 +267,7 @@ class CervixDataset(Dataset):
         }
 
     def get_dataset_stats(self) -> Dict[str, Any]:
-        """
-        Compute summary statistics for the dataset.
-
-        Returns:
-            Dictionary with sample count and optional distribution info
-        """
+        """Compute summary statistics for the dataset."""
         stats = {
             'total_samples': len(self.df),
             'image_dir': self.image_dir,
@@ -305,23 +292,10 @@ def create_datasets(csv_path: str,
                     pad_ratio: float = 0.10) -> Dict[str, CervixDataset]:
     """
     Create train/val/test datasets.
-
-    Args:
-        csv_path: Path to the metadata CSV
-        base_dir: Base directory where split folders (train/val/test) reside
-        normalize: Whether to normalize images using ImageNet stats
-        target_size: Final size for image/mask
-        binary_mask: Whether to binarize the masks
-        active_round: Legacy parameter, kept for compatibility
-        use_labeled_only: If True, only use labeled samples for training set
-
-    Returns:
-        Dictionary with datasets {'train': ..., 'val': ..., 'test': ...}
     """
     datasets = {}
-    set_seed(42)  # Ensure reproducibility
+    set_seed(42)
 
-    # Standard 3-way split (train/val/test)
     for split in ['train', 'val', 'test']:
         image_dir = os.path.join(base_dir, split, "images")
         mask_dir = os.path.join(base_dir, split, "masks")
@@ -336,11 +310,12 @@ def create_datasets(csv_path: str,
             set_filter=split,
             binary_mask=True,
             use_labeled_only=(split == 'train' and use_labeled_only),
-            enable_roi=enable_roi if split == 'train' else False,  # 只给 train 开
+            enable_roi=enable_roi if split == 'train' else False,
             pad_ratio=pad_ratio
         )
 
     return datasets
+
 
 class CervixUnlabeledImages(Dataset):
     def __init__(self,
@@ -349,8 +324,7 @@ class CervixUnlabeledImages(Dataset):
                  target_size: Tuple[int, int] = (512, 512),
                  normalize: bool = True,
                  set_filter: str = 'train',
-                 return_idx: bool = False
-                 ):
+                 return_idx: bool = False):
         self.image_dir = image_dir
         self.target_size = target_size
         self.transform = get_transform(target_size, normalize, augment=False, is_mask=False)
@@ -359,8 +333,7 @@ class CervixUnlabeledImages(Dataset):
         df = pd.read_csv(csv_path) if isinstance(csv_path, str) else csv_path.copy()
         if set_filter:
             df = df[df['set'] == set_filter]
-        # 只取未标注
-        self.df = df[df['labeled'] == 0]
+        self.df = df[df.get('labeled', 1) == 0]
 
         if 'new_image_name' not in self.df.columns:
             raise ValueError("CSV 缺少 new_image_name 列")
@@ -374,11 +347,7 @@ class CervixUnlabeledImages(Dataset):
         image = Image.open(img_path).convert("RGB")
         image = image.resize(self.target_size, resample=Image.BILINEAR)
         image = self.transform(image)
-        # 只返回图像即可（无 mask）
         if self.return_idx:
-            # 给“采样器”用：不要返回 None！最多返回 (image, idx) 或 dict
             return image, int(self.df.index[idx])
         else:
-            # 给“半监督训练”用：只要图像
             return image
-
