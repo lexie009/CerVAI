@@ -821,15 +821,17 @@ def active_learning_loop(
 
         # === 🔧 [ADD] 限制详细样本日志条数，避免日志爆炸 ===
         if hasattr(train_ds, "_set_dbg_limit"):
-            train_ds._set_dbg_limit(20)
+            train_ds._set_dbg_limit(3)
         else:
-            setattr(train_ds, "_dbg_limit", 20);
-            setattr(train_ds, "_dbg_seen", 0)
+            train_ds._dbg_limit = 3
+            train_ds._dbg_seen = 0
+
+        # 验证集：关闭样本级详细日志
         if hasattr(val_ds, "_set_dbg_limit"):
-            val_ds._set_dbg_limit(10)
+            val_ds._set_dbg_limit(0)
         else:
-            setattr(val_ds, "_dbg_limit", 10);
-            setattr(val_ds, "_dbg_seen", 0)
+            val_ds._dbg_limit = 0
+            val_ds._dbg_seen = 0
 
         # ---------- 2. model + trainer ----------
         trainer.update_datasets(train_ds, val_ds, reset_early_stopping=True)
@@ -949,6 +951,10 @@ def active_learning_loop(
         shuffle=False,
         num_workers=0
     )
+    # 静默 test 数据集的样本级日志
+    if hasattr(test_ds, "_dbg_limit"):
+        test_ds._dbg_limit = 0
+        test_ds._dbg_seen = 0
 
     # Use the best-threshold found on the last validation sweep (fallback to config)
     test_thr = float(best_thr_last) if ("best_thr_last" in locals() and best_thr_last is not None) \

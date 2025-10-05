@@ -100,6 +100,25 @@ class CervixDataset(Dataset):
         if round_column_filter and round_column_filter in self.df.columns:
             self.df = self.df[self.df[round_column_filter] == True]
 
+        if not hasattr(self, "_dbg_limit"):
+            self._dbg_limit = int(os.environ.get("DATA_DBG_LIMIT", 20))  # 只详细打印前 N 个样本
+        if not hasattr(self, "_dbg_seen"):
+            self._dbg_seen = 0
+
+        if not hasattr(self, "_seen"):
+            self._seen = 0
+        if not hasattr(self, "_pos_sum"):
+            self._pos_sum = 0.0
+        if not hasattr(self, "_cnt_allzero"):
+            self._cnt_allzero = 0
+        if not hasattr(self, "_cnt_allone"):
+            self._cnt_allone = 0
+
+        # split 名称用于日志 tag（尽量从 set_filter 推断）
+        split_name = getattr(self, "set_filter", None) or getattr(self, "split", None) or "unknown"
+        if not hasattr(self, "logger"):
+            self.logger = logging.getLogger(f"CervixDataset[{split_name}]")
+
         # 必需列检查
         required_cols = ['new_image_name', 'new_mask_name']
         for col in required_cols:
@@ -122,7 +141,7 @@ class CervixDataset(Dataset):
         mask = Image.open(mask_path).convert("L")
 
         # ==== 单样本调试总开关（该样本是否允许打印）====
-        dbg_ok = self._dbg_seen < self._dbg_limit
+        dbg_ok = (str(self.split).lower() == 'train') and (self._dbg_seen < self._dbg_limit)
 
         if dbg_ok:
             self.logger.info(f"[DATA/IO] Opened mask: {mask_path}, original size: {mask.size}")
@@ -221,13 +240,38 @@ class CervixDataset(Dataset):
 
         return image, mask, global_id
 
-    def log_summary(self):
-        n = max(1, self._seen)
+    def log_summary(self, reset: bool = False):
+        """
+        打印本数据集在 __getitem__ 过程中积累的简单统计。
+        Args:
+            reset: True 则打印后清零计数器；False 则保留继续累计。
+        """
+        # 柔性兜底（防止属性不存在）
+        if not hasattr(self, "_seen"):
+            self._reset_counters()
+
+        n = int(self._seen)
+        if n <= 0:
+            self.logger.info("[DATA/SUMMARY] no samples seen yet.")
+            return
+
+        avg_pos = self._pos_sum / max(1, n)
         self.logger.info(
-            f"[DATA/SUMMARY] split={self.split} seen={self._seen} "
-            f"all_zero={self._cnt_allzero} all_one={self._cnt_allone} "
-            f"pos_ratio_mean={self._pos_sum / n:.4f}"
+            "[DATA/SUMMARY] seen=%d  all_zero=%d  all_one=%d  avg_pos_ratio=%.4f",
+            n, int(self._cnt_allzero), int(self._cnt_allone), float(avg_pos)
         )
+
+        if reset:
+            self._reset_counters()
+            self.logger.info("[DATA/SUMMARY] counters reset.")
+
+    def _reset_counters(self):
+        """Reset sanity-check counters (and limited debug counter)."""
+        self._seen = 0
+        self._pos_sum = 0.0
+        self._cnt_allzero = 0
+        self._cnt_allone = 0
+        self._dbg_seen = 0
 
     def _sync_geom_aug(self, image_pil, mask_pil):
         """ data augmentation on both image and mask (PIL→PIL) """

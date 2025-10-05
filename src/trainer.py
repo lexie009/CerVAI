@@ -634,8 +634,7 @@ class Trainer:
                             f"[FG-prob] min={q.min():.3f} p50={p50:.3f} mean={q.mean():.3f} "
                             f"max={q.max():.3f} | >thr({selected_thr:.2f})={frac:.3f}"
                         )
-                        progress_bar.write(f"[FG-prob] min={q.min():.3f} p50={p50:.3f} mean={q.mean():.3f} "
-                            f"max={q.max():.3f} | >thr({selected_thr:.2f})={frac:.3f}")
+
                     else:
                         self.logger.info("[FG-prob] all probs invalid (empty after filtering)")
 
