@@ -274,23 +274,30 @@ class CervixDataset(Dataset):
         self._dbg_seen = 0
 
     def _sync_geom_aug(self, image_pil, mask_pil):
-        """ data augmentation on both image and mask (PIL→PIL) """
+        """同步几何增强（仅 train 使用）：翻转 + 旋转 + 等比缩放 + 平移"""
+        # 50% 概率水平翻转
         if random.random() < 0.5:
             image_pil = F.hflip(image_pil)
             mask_pil = F.hflip(mask_pil)
+        # 50% 概率垂直翻转
+        if random.random() < 0.5:
+            image_pil = F.vflip(image_pil)
+            mask_pil = F.vflip(mask_pil)
 
-        angle = random.uniform(-10, 10)
+        # 旋转（±25°）+ 轻度平移（±10%）+ 等比缩放（0.9~1.1）
+        angle = random.uniform(-25, 25)
         W, H = image_pil.size
         max_dx, max_dy = 0.10 * W, 0.10 * H
         tx = random.uniform(-max_dx, max_dx)
         ty = random.uniform(-max_dy, max_dy)
+        scale = random.uniform(0.9, 1.1)
 
         image_pil = F.affine(
-            image_pil, angle=angle, translate=(tx, ty), scale=1.0, shear=(0.0, 0.0),
+            image_pil, angle=angle, translate=(tx, ty), scale=scale, shear=(0.0, 0.0),
             interpolation=InterpolationMode.BILINEAR, fill=0
         )
         mask_pil = F.affine(
-            mask_pil, angle=angle, translate=(tx, ty), scale=1.0, shear=(0.0, 0.0),
+            mask_pil, angle=angle, translate=(tx, ty), scale=scale, shear=(0.0, 0.0),
             interpolation=InterpolationMode.NEAREST, fill=0
         )
         return image_pil, mask_pil

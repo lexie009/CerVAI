@@ -37,7 +37,7 @@ from trainer import Trainer, GradualWarmupScheduler
 from sampling.active_sampling import sample_new_indices
 from utils.sampling_recording_utils import record_sampling_info
 from utils.visualization_utils import visualize_single_sample, plot_metrics_curve, visualize_predictions_overlay, sweep_thresholds_and_plot
-from utils.evaluate_utils import evaluate_basic, evaluate_full, save_round_metrics, sweep_thresholds
+from utils.evaluate_utils import evaluate_basic, evaluate_full, save_round_metrics, sweep_thresholds, per_image_dice_list
 from dataset import CervixUnlabeledImages
 
 # Setup logging
@@ -507,6 +507,14 @@ def create_round_datasets(data_config: Dict[str, Any],
         "full_train": train_datasets['train']
     }
 
+def bootstrap_ci(values, n_boot=2000, alpha=0.05, seed=42):
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    v = np.asarray(values, dtype=float)
+    means = [rng.choice(v, size=v.size, replace=True).mean() for _ in range(n_boot)]
+    lo, hi = np.percentile(means, [100 * alpha / 2, 100 * (1 - alpha / 2)])
+    return float(v.mean()), float(lo), float(hi)
+
 
 def setup_experiment_dirs(output_dir: str, experiment_name: str) -> Dict[str, str]:
     """Setup experiment directory structure."""
@@ -600,18 +608,27 @@ def validate_visualize_sample(
         budget: int,
         device: torch.device,
         model_name: str,
-        threshold: Optional[float] = None   # ← 入参保留，但本函数内会先做 sweep 覆盖它
+        threshold: Optional[float] = None   # 入参保留；函数内会用 sweep 结果覆盖
     ):
     """
-    One-stop post-training procedure (统一口径版本):
+    One-stop post-training procedure:
 
     A) sweep 阈值 → 取 best_thr
-    B) 用 best_thr 做验证 evaluate_basic() 并落盘 round_metrics
+    B) 用 best_thr 做验证 evaluate_basic() 并落盘 round_metrics（含 Dice 的 95% CI）
     C) 用 best_thr 存可视化（与验证同阈值）
     D) (非最后一轮) 采样并回写 pool.csv
     E) 返回 (val_metrics@best_thr, best_thr)
     """
+    from torch.utils.data import DataLoader
+    import os
+    import numpy as np
+    import pandas as pd
+    from utils.evaluate_utils import per_image_dice_list
+
+    logger = logging.getLogger(__name__)
     round_name = f"round{rnd}"
+
+    # —— 验证 DataLoader（与你原来一致）——
     bs = train_cfg.get("batch_size", train_cfg.get("train", {}).get("batch_size", 4))
     v_loader = DataLoader(val_ds, batch_size=bs, shuffle=False, num_workers=0)
 
@@ -635,7 +652,7 @@ def validate_visualize_sample(
         f"Dice={sweep_info['dice_at_best']:.3f}"
     )
 
-    # 统一本轮“推理阈值”：优先用本轮 sweep 的 best_thr
+    # 统一本轮“推理阈值”：优先用 sweep 的 best_thr
     infer_thr = best_thr_from_val
 
     # ---------- B) 用 best_thr 做验证并落盘 ----------
@@ -643,8 +660,20 @@ def validate_visualize_sample(
         trainer.model, v_loader, device,
         threshold=infer_thr,
     )
-    # 把当轮阈值也写进 metrics 便于追踪
-    val_metrics["thr"] = infer_thr
+    # 追加：在验证集上逐图 Dice → 95% CI
+    per_img_dice_val = per_image_dice_list(
+        trainer.model,
+        v_loader,            # 直接用上面的验证 loader
+        device,
+        threshold=infer_thr
+    )
+    mean_dice_val, ci_lo_val, ci_hi_val = bootstrap_ci(per_img_dice_val, n_boot=2000, alpha=0.05, seed=42)
+
+    # 写入指标字典（CSV 将包含这些列）
+    val_metrics["thr"]        = infer_thr
+    val_metrics["dice_mean"]  = float(mean_dice_val)     # 冗余=Dice 平均，便于健壮
+    val_metrics["dice_ci_lo"] = float(ci_lo_val)
+    val_metrics["dice_ci_hi"] = float(ci_hi_val)
 
     save_round_metrics(
         round_id=rnd,
@@ -672,8 +701,13 @@ def validate_visualize_sample(
     if rnd < total_iters - 1:
         logger.info("🎯 Sampling new indices for next round …")
 
+        # 将 pool.csv 的全局索引映射到 full_train_ds 的本地索引
         global2local = {g: p for p, g in enumerate(full_train_ds.df.index)}
         pool_df = pd.read_csv(pool_csv)
+
+        # 仅对 train 且未标注的样本进行抽样
+        # 注意：这里假设 pool.csv 的行索引就是“全局索引”，
+        # 如果你把全局索引存在某个列里（例如 'gid'），请改成 pool_df['gid'].tolist()
         unlabeled_global = pool_df.query("set == 'train' and labeled == 0").index.tolist()
         unlabeled_local = [global2local[g] for g in unlabeled_global if g in global2local]
 
@@ -688,6 +722,7 @@ def validate_visualize_sample(
             csv_path=pool_csv,
         )
 
+        # 根据 new_image_name 标记为已标注
         mask_new = (pool_df["new_image_name"].isin(new_names) & (pool_df["labeled"] == 0))
         pool_df.loc[mask_new, "labeled"] = 1
         pool_df.to_csv(pool_csv, index=False)
@@ -695,6 +730,7 @@ def validate_visualize_sample(
                     f"(total labeled = {pool_df['labeled'].sum()})")
 
     return val_metrics, best_thr_from_val
+
 
 
 
@@ -969,6 +1005,21 @@ def active_learning_loop(
          "PA={pixel_acc:.4f}  mPA={mean_pixel_acc:.4f}")
         .format(**test_metrics)
     )
+
+
+    per_img_dice = per_image_dice_list(trainer.model, test_loader, device, threshold=test_thr)
+    mean_dice, ci_lo, ci_hi = bootstrap_ci(per_img_dice, n_boot=2000, alpha=0.05, seed=42)
+
+    logger.info(f"TEST Dice 95% CI (bootstrap, n=2000): mean={mean_dice:.4f} "
+                f"[{ci_lo:.4f}, {ci_hi:.4f}]  (N={len(per_img_dice)})")
+
+    # 把 CI 一并写入 JSON
+    final_json = {
+        **test_metrics,
+        "dice_per_image": per_img_dice,  # 如嫌大，可不存
+        "dice_95ci": {"mean": mean_dice, "low": ci_lo, "high": ci_hi,
+                      "method": "bootstrap_percentile", "n_boot": 2000}
+    }
 
     with open(os.path.join(dirs["results"], "final_test_metrics.json"), "w") as f:
         json.dump(test_metrics, f, indent=2)

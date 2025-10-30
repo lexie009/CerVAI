@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as Fnn
 import torch.optim as optim
 from torch.optim import lr_scheduler
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, RandomSampler
 import numpy as np
 import random
 import os
@@ -201,16 +201,32 @@ class Trainer:
         self.device = torch.device(config.get('device', 'cuda') if torch.cuda.is_available() else 'cpu')
         self.model.to(self.device)
         print(f"Using device: {self.device}")
-        
-        # Data loaders
+
+        self.repeat_k = int(config.get("repeat_aug_k", 1))
+
+        if self.repeat_k <= 1:
+                train_sampler = None
+                train_shuffle = True
+                effective_train_len = len(train_dataset)
+        else:
+        # 用“放回抽样”的 RandomSampler，把一个 epoch 的样本数扩展为 K * N
+            train_sampler = RandomSampler(
+                train_dataset, replacement=True, num_samples=self.repeat_k * len(train_dataset))
+
+            train_shuffle = False  # sampler 生效时必须关闭 shuffle
+            effective_train_len = self.repeat_k * len(train_dataset)
+
+        self.logger = logging.getLogger(__name__) if hasattr(self, "logger") else logging.getLogger(__name__)
+        self.logger.info(f"[RepeatAug] K={self.repeat_k} → effective samples/epoch = {effective_train_len}")
+
         self.train_loader = DataLoader(
-            train_dataset,
-            batch_size=config['batch_size'],
-            shuffle=True,
-            num_workers=config.get('num_workers', 4),
-            pin_memory=True if self.device.type == 'cuda' else False,
-            drop_last = True
-        )
+                    train_dataset,
+                    batch_size = config['batch_size'],
+                    shuffle = train_shuffle,
+                    sampler = train_sampler,
+                    num_workers = config.get('num_workers', 4),
+                    pin_memory = True if self.device.type == 'cuda' else False,
+                    drop_last = True)
         
         self.val_loader = DataLoader(
             val_dataset,
@@ -319,6 +335,30 @@ class Trainer:
 
         else:
             raise ValueError(f"Unsupported loss function: {loss_name}")
+
+    def _prep_target_for_loss(self, masks: torch.Tensor) -> torch.Tensor:
+        """
+        把 GT 统一成当前 loss 期望的形状/类型：
+        - CrossEntropyLoss  : [B,H,W] 的 long index
+        - DiceCE/Tversky等  : [B,1,H,W] 的 long（内部会 to_onehot_y）
+        """
+        masks = masks.long()
+        if self.loss_needs_channel:
+            # 需要 [B,1,H,W]
+            if masks.dim() == 3:
+                return masks.unsqueeze(1)
+            if masks.dim() == 4 and masks.size(1) == 1:
+                return masks
+            # 若传来 one-hot（极少见），降为 index 再加 channel
+            return masks.argmax(dim=1, keepdim=True)
+        else:
+            # 需要 [B,H,W]
+            if masks.dim() == 4 and masks.size(1) == 1:
+                return masks.squeeze(1)
+            if masks.dim() == 3:
+                return masks
+            # 若为 one-hot，降为 index
+            return masks.argmax(dim=1)
 
     def _setup_optimizer(self):
         """Setup optimizer."""
@@ -453,7 +493,33 @@ class Trainer:
             self.optimizer.zero_grad()
 
             outputs = self.model(images)
-            loss = self.criterion(outputs, masks)
+
+            # 1) 模型输出应为 logits，[B,2,H,W]，互斥
+            assert outputs.ndim == 4 and outputs.shape[1] == 2, f"bad logits shape: {outputs.shape}"
+            with torch.no_grad():
+                s = torch.softmax(outputs, dim=1)
+                # 2) softmax 互斥性
+                _sum = s[:, 0] + s[:, 1]
+                assert torch.allclose(_sum, torch.ones_like(_sum), atol=1e-5), "softmax sum != 1"
+                # 3) 前景通道统计，快速看是否“全图前景”
+                p = s[:, 1]
+                frac_over_05 = (p >= 0.5).float().mean().item()
+                frac_over_08 = (p >= 0.8).float().mean().item()
+                if batch_idx % 50 == 0:
+                    self.logger.info(f"[PROBE] p_fg mean={p.mean():.3f} "
+                                     f"p>0.5={frac_over_05:.3f} p>0.8={frac_over_08:.3f}")
+
+            # === 统一得到 index 形式的 GT，做健壮性检查 ===
+            if self.loss_needs_channel:
+                # 你上面可能把 masks 做成了 [B,1,H,W] 以适配 Dice/Tversky
+                masks_idx = masks.squeeze(1) if (masks.dim() == 4 and masks.size(1) == 1) else masks
+            else:
+                masks_idx = masks  # CrossEntropy 时已是 [B,H,W]
+
+            assert masks_idx.dtype in (torch.int64, torch.long), f"target dtype must be Long, got {masks_idx.dtype}"
+            with torch.no_grad():
+                uniq = torch.unique(masks_idx)
+                assert set(uniq.tolist()).issubset({0, 1}), f"target values {uniq.tolist()} not in {{0,1}}"
 
             if self.current_epoch == 0 and batch_idx < 2:
                 with torch.no_grad():
@@ -470,7 +536,9 @@ class Trainer:
                          (fg > 0.5).float().mean().item(),
                          (fg > 0.8).float().mean().item())
                     )
-            
+
+            masks_for_loss = self._prep_target_for_loss(masks)
+            loss = self.criterion(outputs, masks_for_loss)
             loss.backward()
 
             # --- 在 loss.backward() 之后、optimizer.step() 之前插入 ---

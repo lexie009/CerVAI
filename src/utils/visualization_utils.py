@@ -274,36 +274,53 @@ def visualize_single_sample(image, target_mask, pred_mask, uncertainty_map=None,
 def plot_metrics_curve(csv_path: str, save_path: str) -> None:
     """
     Plot Dice, IoU, and HD95 metrics over active learning rounds.
-
-    Args:
-        csv_path (str): Path to the CSV file containing metrics.
-        save_path (str): Path to save the plot image.
+    - 若 CSV 含有 *_ci_lo / *_ci_hi 列，则绘制 95% 置信区间阴影。
+    - 仍按 {save_path}_{metric}.png 分别保存三张图。
     """
     if not os.path.exists(csv_path):
         raise FileNotFoundError(f"CSV file not found: {csv_path}")
 
     df = pd.read_csv(csv_path)
-    rounds = df['round']
+    if 'round' not in df.columns:
+        raise ValueError("CSV must contain a 'round' column.")
+    rounds = df['round'].values
 
-    # helper
-    def _single(metric: str, marker: str, x):
+    def _plot_one(metric: str, marker: str = "o"):
+        if metric not in df.columns:
+            print(f"[warn] '{metric}' column not in CSV, skip.")
+            return
+        y = df[metric].values
+
         plt.figure(figsize=(6, 4))
-        plt.plot(x, df[metric], marker=marker, linewidth=2)
+        # 先画 CI（如果有）
+        lo_col, hi_col = f"{metric}_ci_lo", f"{metric}_ci_hi"
+        if lo_col in df.columns and hi_col in df.columns:
+            lo = df[lo_col].values
+            hi = df[hi_col].values
+            # 阴影
+            plt.fill_between(rounds, lo, hi, alpha=0.18, linewidth=0, label="95% CI")
+
+        # 主曲线
+        plt.plot(rounds, y, marker=marker, linewidth=2, label=metric.upper())
+
         plt.xlabel("Active-learning round")
         plt.ylabel(metric.upper())
         plt.title(f"{metric.upper()} vs round")
         plt.grid(True, ls="--", alpha=.4)
+        plt.legend(loc="best")
         plt.tight_layout()
+
         out_path = f"{save_path}_{metric}.png"
         plt.savefig(out_path, dpi=160)
         plt.close()
         print(f"📊 {metric} curve saved → {out_path}")
 
-    _single("dice", "o", rounds)
-    _single("iou", "s", rounds)
-    _single("hd95", "^", rounds)
+    # 分别绘制三项指标（若存在 CI 列会自动加阴影）
+    _plot_one("dice", "o")
+    _plot_one("iou", "s")
+    _plot_one("hd95", "^")
 
-    print(f"📊 Metrics plot saved to {save_path}")
+    print(f"📊 Metrics plot saved to prefix: {save_path}")
 
 # --- add: threshold sweep and overlay visualization utilities ---
 

@@ -296,3 +296,40 @@ def save_round_metrics(round_id: int,
         if not file_exists:
             writer.writeheader()
         writer.writerow(row)
+
+@torch.no_grad()
+def per_image_dice_list(model, loader, device, threshold=0.5):
+    model.eval()
+    dices = []
+    eps = 1e-6
+    for batch in loader:
+        # 兼容你的 Dataset 返回 (image, mask, meta)
+        if len(batch) == 3:
+            images, masks, _ = batch
+        else:
+            images, masks = batch
+
+        images = images.to(device)
+        # masks: [B, H, W] （前景=1/背景=0）
+        logits = model(images)
+
+        if logits.shape[1] == 1:
+            # 单通道互斥：logits → sigmoid → 前景概率
+            prob_fg = torch.sigmoid(logits)[:, 0]
+        else:
+            # 双通道互斥：logits → softmax → [:,1] 前景
+            prob_fg = torch.softmax(logits, dim=1)[:, 1]
+
+        pred = (prob_fg >= threshold).float()
+
+        # 逐图 Dice（不做 batch 归约）
+        # masks 可能是 long/byte，统一到 float
+        masks = (masks > 0).float().to(pred.device)
+        B = masks.shape[0]
+        for b in range(B):
+            y = masks[b].reshape(-1)
+            p = pred[b].reshape(-1)
+            inter = (y * p).sum()
+            dice = (2 * inter + eps) / (y.sum() + p.sum() + eps)
+            dices.append(float(dice))
+    return dices
