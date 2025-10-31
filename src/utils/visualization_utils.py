@@ -271,56 +271,82 @@ def visualize_single_sample(image, target_mask, pred_mask, uncertainty_map=None,
                            save_path=save_path)
 
 
-def plot_metrics_curve(csv_path: str, save_path: str) -> None:
+def plot_metrics_curve(csv_path: str, save_prefix: str | None = None):
     """
-    Plot Dice, IoU, and HD95 metrics over active learning rounds.
-    - 若 CSV 含有 *_ci_lo / *_ci_hi 列，则绘制 95% 置信区间阴影。
-    - 仍按 {save_path}_{metric}.png 分别保存三张图。
+    从 round_metrics.csv 读取每轮指标，绘制随轮次变化曲线。
+    若存在列 'dice_ci_lo' / 'dice_ci_hi' 则在 Dice 曲线上绘制 95% CI 阴影带。
+    保存三张图：_dice.png / _iou.png / _hd95.png
     """
-    if not os.path.exists(csv_path):
-        raise FileNotFoundError(f"CSV file not found: {csv_path}")
+    if not os.path.isfile(csv_path):
+        raise FileNotFoundError(f"{csv_path} not found")
 
     df = pd.read_csv(csv_path)
-    if 'round' not in df.columns:
-        raise ValueError("CSV must contain a 'round' column.")
-    rounds = df['round'].values
+    if "round" not in df.columns:
+        raise ValueError("round_metrics.csv 缺少 'round' 列")
 
-    def _plot_one(metric: str, marker: str = "o"):
-        if metric not in df.columns:
-            print(f"[warn] '{metric}' column not in CSV, skip.")
-            return
-        y = df[metric].values
+    df = df.sort_values("round").reset_index(drop=True)
+    rounds = df["round"].to_numpy()
 
-        plt.figure(figsize=(6, 4))
-        # 先画 CI（如果有）
-        lo_col, hi_col = f"{metric}_ci_lo", f"{metric}_ci_hi"
-        if lo_col in df.columns and hi_col in df.columns:
-            lo = df[lo_col].values
-            hi = df[hi_col].values
-            # 阴影
-            plt.fill_between(rounds, lo, hi, alpha=0.18, linewidth=0, label="95% CI")
+    # 若没指定保存前缀，则与 csv 同目录/同名
+    if save_prefix is None:
+        base = os.path.splitext(csv_path)[0]
+    else:
+        base = save_prefix
+    os.makedirs(os.path.dirname(base), exist_ok=True)
 
-        # 主曲线
-        plt.plot(rounds, y, marker=marker, linewidth=2, label=metric.upper())
-
+    # --------- 1) Dice（带 95% CI 阴影：可选）---------
+    if "dice" in df.columns:
+        plt.figure(figsize=(6.5, 4.2))
+        plt.plot(rounds, df["dice"].to_numpy(),
+                 marker="s", linewidth=2, label="Dice")
+        # 阴影（如果有）
+        if {"dice_ci_lo", "dice_ci_hi"}.issubset(df.columns):
+            lo = df["dice_ci_lo"].to_numpy()
+            hi = df["dice_ci_hi"].to_numpy()
+            if np.all(np.isfinite(lo)) and np.all(np.isfinite(hi)):
+                plt.fill_between(rounds, lo, hi, alpha=0.25, label="95% CI")
         plt.xlabel("Active-learning round")
-        plt.ylabel(metric.upper())
-        plt.title(f"{metric.upper()} vs round")
-        plt.grid(True, ls="--", alpha=.4)
-        plt.legend(loc="best")
-        plt.tight_layout()
-
-        out_path = f"{save_path}_{metric}.png"
-        plt.savefig(out_path, dpi=160)
+        plt.ylabel("Dice")
+        plt.title("Dice vs round")
+        plt.grid(True, alpha=0.35, linestyle="--")
+        plt.legend()
+        out_dice = f"{base}_dice.png"
+        plt.savefig(out_dice, bbox_inches="tight", dpi=160)
         plt.close()
-        print(f"📊 {metric} curve saved → {out_path}")
+        print(f"📊 dice curve saved → {out_dice}")
 
-    # 分别绘制三项指标（若存在 CI 列会自动加阴影）
-    _plot_one("dice", "o")
-    _plot_one("iou", "s")
-    _plot_one("hd95", "^")
+    # --------- 2) IoU ---------
+    if "iou" in df.columns:
+        plt.figure(figsize=(6.5, 4.2))
+        plt.plot(rounds, df["iou"].to_numpy(),
+                 marker="s", linewidth=2, label="IoU")
+        plt.xlabel("Active-learning round")
+        plt.ylabel("IoU")
+        plt.title("IoU vs round")
+        plt.grid(True, alpha=0.35, linestyle="--")
+        plt.legend()
+        out_iou = f"{base}_iou.png"
+        plt.savefig(out_iou, bbox_inches="tight", dpi=160)
+        plt.close()
+        print(f"📊 iou curve saved → {out_iou}")
 
-    print(f"📊 Metrics plot saved to prefix: {save_path}")
+    # --------- 3) HD95 ---------
+    if "hd95" in df.columns:
+        plt.figure(figsize=(6.5, 4.2))
+        plt.plot(rounds, df["hd95"].to_numpy(),
+                 marker="s", linewidth=2, label="HD95")
+        plt.xlabel("Active-learning round")
+        plt.ylabel("HD95")
+        plt.title("HD95 vs round")
+        plt.grid(True, alpha=0.35, linestyle="--")
+        plt.legend()
+        out_hd = f"{base}_hd95.png"
+        plt.savefig(out_hd, bbox_inches="tight", dpi=160)
+        plt.close()
+        print(f"📊 hd95 curve saved → {out_hd}")
+
+    # 额外：给一个“组合前缀”提示，和你原先的日志保持一致风格
+    print(f"📊 Metrics plot saved to prefix: {base}")
 
 # --- add: threshold sweep and overlay visualization utilities ---
 

@@ -600,41 +600,34 @@ def validate_visualize_sample(
         trainer: "Trainer",
         val_ds,
         full_train_ds,
-        dirs: Dict[str, str],
-        train_cfg: Dict[str, Any],
-        data_cfg : Dict[str, Any],
-        pool_csv : str,
+        dirs: dict,
+        train_cfg: dict,
+        data_cfg: dict,
+        pool_csv: str,
         sampling_strategy: str,
         budget: int,
         device: torch.device,
         model_name: str,
-        threshold: Optional[float] = None   # 入参保留；函数内会用 sweep 结果覆盖
+        threshold: float | None = None   # 入参保留；函数内用 sweep 结果覆盖
     ):
     """
     One-stop post-training procedure:
 
     A) sweep 阈值 → 取 best_thr
-    B) 用 best_thr 做验证 evaluate_basic() 并落盘 round_metrics（含 Dice 的 95% CI）
-    C) 用 best_thr 存可视化（与验证同阈值）
-    D) (非最后一轮) 采样并回写 pool.csv
+    B) 用 best_thr 在验证集评估，并把 Dice 的 95% CI 也写进 round_metrics.csv
+    C) 用同一阈值做验证可视化
+    D) 若不是最后一轮 → 采样并回写 pool.csv
     E) 返回 (val_metrics@best_thr, best_thr)
     """
-    from torch.utils.data import DataLoader
-    import os
-    import numpy as np
-    import pandas as pd
-    from utils.evaluate_utils import per_image_dice_list
-
-    logger = logging.getLogger(__name__)
     round_name = f"round{rnd}"
-
-    # —— 验证 DataLoader（与你原来一致）——
     bs = train_cfg.get("batch_size", train_cfg.get("train", {}).get("batch_size", 4))
     v_loader = DataLoader(val_ds, batch_size=bs, shuffle=False, num_workers=0)
 
-    # ---------- A) sweep 阈值（当前轮） ----------
+    # ---------- A) sweep 当前轮阈值 ----------
     sweep_dir = os.path.join(dirs["results"], f"{round_name}_sweep")
+    os.makedirs(sweep_dir, exist_ok=True)
     thr_list = np.linspace(0.10, 0.80, 21)
+
     sweep_info = sweep_thresholds_and_plot(
         model=trainer.model,
         dataset=val_ds,
@@ -651,30 +644,26 @@ def validate_visualize_sample(
         f"R={sweep_info['rec_at_best']:.3f} "
         f"Dice={sweep_info['dice_at_best']:.3f}"
     )
+    infer_thr = best_thr_from_val  # 统一使用 sweep 的最佳阈值
 
-    # 统一本轮“推理阈值”：优先用 sweep 的 best_thr
-    infer_thr = best_thr_from_val
+    # ---------- B) 评估（含 95% CI）并落盘 ----------
+    val_metrics = evaluate_basic(trainer.model, v_loader, device, threshold=infer_thr)
 
-    # ---------- B) 用 best_thr 做验证并落盘 ----------
-    val_metrics = evaluate_basic(
-        trainer.model, v_loader, device,
-        threshold=infer_thr,
-    )
-    # 追加：在验证集上逐图 Dice → 95% CI
+    # 逐图 Dice → bootstrap CI
     per_img_dice_val = per_image_dice_list(
-        trainer.model,
-        v_loader,            # 直接用上面的验证 loader
-        device,
-        threshold=infer_thr
+        trainer.model, v_loader, device, threshold=infer_thr
     )
-    mean_dice_val, ci_lo_val, ci_hi_val = bootstrap_ci(per_img_dice_val, n_boot=2000, alpha=0.05, seed=42)
+    dice_mean, dice_lo, dice_hi = bootstrap_ci(
+        per_img_dice_val, n_boot=2000, alpha=0.05, seed=42
+    )
 
-    # 写入指标字典（CSV 将包含这些列）
+    # 写入指标（CSV 会包含这几列，绘图函数可读到）
     val_metrics["thr"]        = infer_thr
-    val_metrics["dice_mean"]  = float(mean_dice_val)     # 冗余=Dice 平均，便于健壮
-    val_metrics["dice_ci_lo"] = float(ci_lo_val)
-    val_metrics["dice_ci_hi"] = float(ci_hi_val)
+    val_metrics["dice_mean"]  = float(dice_mean)  # 与 val_metrics["dice"] 等价冗余，防止下游读取问题
+    val_metrics["dice_ci_lo"] = float(dice_lo)
+    val_metrics["dice_ci_hi"] = float(dice_hi)
 
+    # 保存每轮指标
     save_round_metrics(
         round_id=rnd,
         metrics=val_metrics,
@@ -684,7 +673,11 @@ def validate_visualize_sample(
         pool_csv=pool_csv
     )
 
-    # ---------- C) 用同一个阈值做可视化 ----------
+    # 可选：把本轮 best_thr 单独存一个文件，避免后续阶段“读错阈值”
+    with open(os.path.join(dirs["results"], f"{round_name}_best_thr.txt"), "w") as f:
+        f.write(f"{infer_thr:.4f}\n")
+
+    # ---------- C) 与验证一致的阈值做可视化 ----------
     viz_dir = os.path.join(dirs["visualizations"], round_name)
     visualize_predictions_overlay(
         model=trainer.model,
@@ -692,22 +685,20 @@ def validate_visualize_sample(
         device=device,
         save_dir=viz_dir,
         num_samples=data_cfg.get("validation", {}).get("val_visualization_samples", 6),
-        threshold=infer_thr,               # ★ 与验证一致
+        threshold=infer_thr,
         keep_largest_cc=False,
         min_cc_area=0
     )
 
-    # ---------- D) 采样（非最后一轮） ----------
+    # ---------- D) 采样并回写（非最后一轮） ----------
     if rnd < total_iters - 1:
         logger.info("🎯 Sampling new indices for next round …")
 
-        # 将 pool.csv 的全局索引映射到 full_train_ds 的本地索引
+        # 全局→本地索引
         global2local = {g: p for p, g in enumerate(full_train_ds.df.index)}
         pool_df = pd.read_csv(pool_csv)
 
         # 仅对 train 且未标注的样本进行抽样
-        # 注意：这里假设 pool.csv 的行索引就是“全局索引”，
-        # 如果你把全局索引存在某个列里（例如 'gid'），请改成 pool_df['gid'].tolist()
         unlabeled_global = pool_df.query("set == 'train' and labeled == 0").index.tolist()
         unlabeled_local = [global2local[g] for g in unlabeled_global if g in global2local]
 
