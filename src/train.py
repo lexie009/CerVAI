@@ -947,8 +947,7 @@ def active_learning_loop(
     with open(os.path.join(dirs["results"], "final_results.json"), "w") as f:
         json.dump(results, f, indent=2, default=str)
 
-    plot_metrics_curve(csv_path=os.path.join(dirs["results"], "round_metrics.csv"),
-                       save_path=os.path.join(dirs["results"], "metrics_curve.png"))
+    plot_metrics_curve(csv_path=os.path.join(dirs["results"], "round_metrics.csv"), save_prefix=os.path.join(dirs["results"], "metrics_curve.png"))
 
     logger.info("🔬  Evaluating final model on TEST set ...")
 
