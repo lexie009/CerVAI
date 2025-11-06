@@ -42,7 +42,7 @@ save_dir: ./checkpoints
 device: cuda
 
 semi:
-  enable: true
+  enable: false
   epochs: 6
   tau: 0.75
   lambda_pseudo: 1.0

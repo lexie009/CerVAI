@@ -40,6 +40,8 @@ from utils.visualization_utils import visualize_single_sample, plot_metrics_curv
 from utils.evaluate_utils import evaluate_basic, evaluate_full, save_round_metrics, sweep_thresholds, per_image_dice_list
 from dataset import CervixUnlabeledImages
 
+from monai.losses import DiceCELoss, TverskyLoss
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -74,6 +76,25 @@ def get_warm_ids_from_disk(pool_df: pd.DataFrame, data_cfg: Dict[str, Any]) -> L
 
     return pool_df[pool_df["new_image_name"].isin(disk_imgs)].index.tolist()
 
+
+def build_loss():
+    """
+    返回 (dice_ce, tversky) 两个 loss 实例。
+    适用于二分类单通道输出 (B,1,H,W)，mask 为 {0,1} 浮点。
+    """
+    dice_ce = DiceCELoss(
+        sigmoid=True,          # 单通道 + sigmoid
+        to_onehot_y=False,
+        squared_pred=False,
+        lambda_dice=1.0,
+        lambda_ce=0.5,
+    )
+    tversky = TverskyLoss(
+        sigmoid=True,
+        alpha=0.75,            # 更重罚 FP
+        beta=0.25,
+    )
+    return dice_ce, tversky
 
 def visualize_predictions(model: torch.nn.Module,
                           dataset,
@@ -450,7 +471,8 @@ def create_round_datasets(data_config: Dict[str, Any],
             enable_roi=data_config.get('roi', {}).get('enable_train', True),
             pad_ratio=data_config.get('roi', {}).get('pad_ratio', 0.10),
             roi_mode=data_config.get('roi', {}).get('mode_train', 'image'),
-            use_mask_on_valtest=False
+            use_mask_on_valtest=False,
+            quadruple_flip=True
         )
         
         train_datasets = {'train': train_dataset}
@@ -626,16 +648,18 @@ def validate_visualize_sample(
     # ---------- A) sweep 当前轮阈值 ----------
     sweep_dir = os.path.join(dirs["results"], f"{round_name}_sweep")
     os.makedirs(sweep_dir, exist_ok=True)
-    thr_list = np.linspace(0.10, 0.80, 21)
+
+    # 1) 阈值更细（0.50 ~ 0.98，步长 0.02）
+    thr_list = np.arange(0.50, 0.981, 0.02)
 
     sweep_info = sweep_thresholds_and_plot(
         model=trainer.model,
-        dataset=val_ds,
+        dataset=val_ds,  # 直接传 dataset，函数内部会建 DataLoader(batch_size=1)
         device=device,
         save_dir=sweep_dir,
         thresholds=thr_list,
-        keep_largest_cc=False,
-        min_cc_area=0
+        keep_largest_cc=True,  # 保留最大连通域（强烈建议开）
+        min_cc_area=0  # 去掉过小的误检碎块
     )
     best_thr_from_val = float(sweep_info["best_thr"])
     logger.info(
@@ -644,7 +668,7 @@ def validate_visualize_sample(
         f"R={sweep_info['rec_at_best']:.3f} "
         f"Dice={sweep_info['dice_at_best']:.3f}"
     )
-    infer_thr = best_thr_from_val  # 统一使用 sweep 的最佳阈值
+    infer_thr = best_thr_from_val
 
     # ---------- B) 评估（含 95% CI）并落盘 ----------
     val_metrics = evaluate_basic(trainer.model, v_loader, device, threshold=infer_thr)
@@ -721,9 +745,6 @@ def validate_visualize_sample(
                     f"(total labeled = {pool_df['labeled'].sum()})")
 
     return val_metrics, best_thr_from_val
-
-
-
 
 def active_learning_loop(
                             train_config: Dict[str, Any],
@@ -947,7 +968,8 @@ def active_learning_loop(
     with open(os.path.join(dirs["results"], "final_results.json"), "w") as f:
         json.dump(results, f, indent=2, default=str)
 
-    plot_metrics_curve(csv_path=os.path.join(dirs["results"], "round_metrics.csv"), save_prefix=os.path.join(dirs["results"], "metrics_curve.png"))
+    plot_metrics_curve(csv_path=os.path.join(dirs["results"], "round_metrics.csv"),
+                       save_prefix=os.path.join(dirs["results"], "metrics_curve"))
 
     logger.info("🔬  Evaluating final model on TEST set ...")
 

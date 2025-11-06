@@ -270,32 +270,47 @@ def save_round_metrics(round_id: int,
                        pool_csv: str):
     """
     Save round evaluation metrics to a CSV file.
-
-    Args:
-        round_id (int): Current active learning round.
-        metrics (dict): Dictionary of metrics (e.g., dice, iou, hd95).
-        save_path (str): Path to CSV file.
+    Will include optional keys like thr / dice_ci_lo / dice_ci_hi / dice_mean if provided.
     """
-    import csv
     import os
+    import pandas as pd
 
-    # Ensure parent directory exists
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
     num_labeled = pd.read_csv(pool_csv)["labeled"].sum()
-    fieldnames = ["round","model","strategy","dice","iou","hd95","num_labeled"]
-    row = { "round":round_id, "model":model_name, "strategy":strategy,
-            "dice":metrics["dice"], "iou":metrics["iou"],
-            "hd95":metrics["hd95"], "num_labeled":num_labeled }
 
-    # Check if file exists
-    file_exists = os.path.isfile(save_path)
+    # 基础字段（老版本字段）
+    row = {
+        "round": round_id,
+        "model": model_name,
+        "strategy": strategy,
+        "dice": float(metrics.get("dice", metrics.get("dice_mean", float("nan")))),
+        "iou": float(metrics.get("iou", float("nan"))),
+        "hd95": float(metrics.get("hd95", float("nan"))),
+        "num_labeled": int(num_labeled),
+    }
+    # 可选字段（新加：CI 与最佳阈值）
+    for k in ["thr", "dice_mean", "dice_ci_lo", "dice_ci_hi"]:
+        if k in metrics:
+            row[k] = float(metrics[k])
 
-    with open(save_path, 'a', newline='') as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        if not file_exists:
-            writer.writeheader()
-        writer.writerow(row)
+    # 读取旧表并对齐列，然后写回
+    if os.path.exists(save_path):
+        df_old = pd.read_csv(save_path)
+        df_new = pd.DataFrame([row])
+        df_all = pd.concat([df_old, df_new], ignore_index=True)
+    else:
+        df_all = pd.DataFrame([row])
+
+    # 统一列顺序（可选）
+    prefer_cols = ["round", "model", "strategy", "num_labeled",
+                   "dice", "dice_mean", "dice_ci_lo", "dice_ci_hi",
+                   "iou", "hd95", "thr"]
+    cols = [c for c in prefer_cols if c in df_all.columns] + \
+           [c for c in df_all.columns if c not in prefer_cols]
+    df_all = df_all[cols]
+
+    df_all.to_csv(save_path, index=False)
 
 @torch.no_grad()
 def per_image_dice_list(model, loader, device, threshold=0.5):

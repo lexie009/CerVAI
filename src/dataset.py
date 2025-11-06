@@ -63,7 +63,9 @@ class CervixDataset(Dataset):
                  enable_roi: bool = False,
                  pad_ratio: float = 0.1,
                  roi_mode: str = "auto",
-                 use_mask_on_valtest: bool = False):
+                 use_mask_on_valtest: bool = False,
+                 quadruple_flip: bool = False):
+
         self.image_dir = image_dir
         self.mask_dir = mask_dir
         self.target_size = target_size
@@ -74,6 +76,8 @@ class CervixDataset(Dataset):
         self.roi_mode = roi_mode
         self.use_mask_on_valtest = use_mask_on_valtest
         self.split = set_filter or ""
+        self.quadruple_flip = bool(quadruple_flip)
+        self._use_det4 = bool(self.augment and self.quadruple_flip and (str(self.split).lower() == 'train'))
 
         # === Sanity/Debug 统计 & 限流 ===
         self.logger = logging.getLogger(f"Dataset[{self.split}]")
@@ -126,13 +130,22 @@ class CervixDataset(Dataset):
                 raise ValueError(f"Missing required column: {col}")
 
     def __len__(self) -> int:
-        return len(self.df)
+        return (len(self.df) * 4) if getattr(self, "_use_det4", False) else len(self.df)
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, Any]:
         """
         返回预处理后的 (image, mask) 对
         """
         row = self.df.iloc[idx]
+
+        if getattr(self, "_use_det4", False):
+            base_idx = idx // 4
+            flip_id = idx % 4
+        else:
+            base_idx = idx
+            flip_id = 0
+        row = self.df.iloc[base_idx]
+
         global_id = row.name
         img_path = os.path.join(self.image_dir, row['new_image_name'])
         mask_path = os.path.join(self.mask_dir, row['new_mask_name'])
@@ -179,11 +192,9 @@ class CervixDataset(Dataset):
         self._pos_sum += pos_ratio_pre
 
         if dbg_ok:
-            self.logger.info(
-                f"[DATA/SANITY:pre] {self.split} sample={row['new_image_name']} "
-                f"img_size={image.size} mask_size={mask.size} "
-                f"mask_uniq={u.tolist()[:6]} pos_ratio={pos_ratio_pre:.4f}"
-            )
+            if getattr(self, "_use_det4", False):
+                self.logger.info(f"[AUG] det4 flip_id={flip_id}  (0:orig,1:H,2:V,3:H+V)")
+                self._dbg_seen += 1
 
         if not set(u.tolist()) <= {0, 1, 255}:
             self.logger.warning(f"[DATA] Non-binary mask values {u[:6]} ... binarizing (>0) @ {mask_path}")
@@ -202,11 +213,26 @@ class CervixDataset(Dataset):
 
         # === 同步几何增强（只在 train）===
         if self.augment:
-            image, mask = self._sync_geom_aug(image, mask)
-            # 颜色增强（只作用在 image）
-            if random.random() < 0.5:
-                cj = T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2)
-                image = cj(image)
+            if getattr(self, "_use_det4", False):
+                if flip_id in (1, 3):  # 水平
+                    image = F.hflip(image)
+                    mask = F.hflip(mask)
+
+                if flip_id in (2, 3):  # 垂直
+                    image = F.vflip(image)
+                    mask = F.vflip(mask)
+                # 轻量随机色彩扰动（保留你原有风格）
+
+                if random.random() < 0.5:
+                    cj = T.ColorJitter(brightness=0.15, contrast=0.15, saturation=0.15, hue=0.02)
+                    image = cj(image)
+            else:
+            # —— 原有随机几何增强路径（翻转+仿射），与你当前实现一致 ——
+                image, mask = self._sync_geom_aug(image, mask)
+
+                if random.random() < 0.5:
+                    cj = T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2)
+                    image = cj(image)
 
         # === 转 Tensor / 归一化 ===
         image = self.transform(image)

@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from monai.losses import DiceCELoss, TverskyLoss, FocalLoss
 from utils.evaluate_utils import _tta_logits, get_foreground_prob
+from train import build_loss
 
 # MONAI metrics
 from monai.metrics import DiceMetric, MeanIoU, HausdorffDistanceMetric
@@ -238,7 +239,8 @@ class Trainer:
         
         # Loss function
         self.criterion = self._setup_loss()
-        
+        self.dice_ce, self.tversky = build_loss()
+
         # Optimizer
         self.optimizer = self._setup_optimizer()
         
@@ -538,7 +540,20 @@ class Trainer:
                     )
 
             masks_for_loss = self._prep_target_for_loss(masks)
-            loss = self.criterion(outputs, masks_for_loss)
+
+            main_loss = self.dice_ce(outputs, masks_for_loss.float()) + 0.5 * self.tversky(outputs, masks_for_loss.float())
+            per_pixel = torch.abs(torch.sigmoid(outputs) - masks_for_loss.float())
+            per_sample = per_pixel.mean(dim=(1, 2, 3))
+            fg_ratio = masks_for_loss.float().mean(dim=(1, 2, 3))
+            weights = torch.where(fg_ratio < 1e-6, torch.tensor(0.3, device=fg_ratio.device),
+                                  torch.tensor(1.0, device=fg_ratio.device))
+
+            norm = (per_sample.detach() + 1e-8) / (per_sample.detach().mean() + 1e-8)
+            weighted = (weights * norm)
+            loss = (weighted * main_loss).mean() if main_loss.ndim == 0 else (
+                        weighted * main_loss.mean(dim=(1, 2, 3))).mean()
+
+
             loss.backward()
 
             # --- 在 loss.backward() 之后、optimizer.step() 之前插入 ---
