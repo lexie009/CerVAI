@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from monai.losses import DiceCELoss, TverskyLoss, FocalLoss
 from utils.evaluate_utils import _tta_logits, get_foreground_prob
-from train import build_loss
+
 
 # MONAI metrics
 from monai.metrics import DiceMetric, MeanIoU, HausdorffDistanceMetric
@@ -122,6 +122,25 @@ def remove_small_cc(mask_bool: torch.Tensor, min_area: int) -> torch.Tensor:
         x = Fnn.max_pool2d(mask_bool.float().unsqueeze(0).unsqueeze(0), k, 1, pad)[0, 0]  # dilation
         y = Fnn.avg_pool2d(x.unsqueeze(0).unsqueeze(0), k, 1, pad)[0, 0] >= 1.0  # erosion after dilation
         return y.bool()
+
+def build_loss():
+    """
+    返回 (dice_ce, tversky) 两个 loss 实例。
+    适用于二分类单通道输出 (B,1,H,W)，mask 为 {0,1} 浮点。
+    """
+    dice_ce = DiceCELoss(
+        sigmoid=True,          # 单通道 + sigmoid
+        to_onehot_y=False,
+        squared_pred=False,
+        lambda_dice=1.0,
+        lambda_ce=0.5,
+    )
+    tversky = TverskyLoss(
+        sigmoid=True,
+        alpha=0.75,            # 更重罚 FP
+        beta=0.25,
+    )
+    return dice_ce, tversky
 
 def make_pseudo_and_valid(prob_fg: torch.Tensor,
                            tau: float = 0.9,
