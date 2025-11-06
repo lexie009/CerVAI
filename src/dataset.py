@@ -136,14 +136,18 @@ class CervixDataset(Dataset):
         """
         返回预处理后的 (image, mask) 对
         """
-        row = self.df.iloc[idx]
 
         if getattr(self, "_use_det4", False):
-            base_idx = idx // 4
-            flip_id = idx % 4
+            base_idx = idx // 4  # 同一张图
+            flip_id = idx % 4  # 0:原 1:H 2:V 3:H+V
         else:
             base_idx = idx
             flip_id = 0
+
+            # 保险兜底（理论上不会触发；触发也能回卷）
+        if base_idx >= len(self.df):
+            base_idx = base_idx % len(self.df)
+
         row = self.df.iloc[base_idx]
 
         global_id = row.name
@@ -217,19 +221,16 @@ class CervixDataset(Dataset):
                 if flip_id in (1, 3):  # 水平
                     image = F.hflip(image)
                     mask = F.hflip(mask)
-
                 if flip_id in (2, 3):  # 垂直
                     image = F.vflip(image)
                     mask = F.vflip(mask)
                 # 轻量随机色彩扰动（保留你原有风格）
-
                 if random.random() < 0.5:
                     cj = T.ColorJitter(brightness=0.15, contrast=0.15, saturation=0.15, hue=0.02)
                     image = cj(image)
             else:
-            # —— 原有随机几何增强路径（翻转+仿射），与你当前实现一致 ——
+                # —— 原有随机几何增强路径（翻转+仿射），与你当前实现一致 ——
                 image, mask = self._sync_geom_aug(image, mask)
-
                 if random.random() < 0.5:
                     cj = T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2)
                     image = cj(image)
