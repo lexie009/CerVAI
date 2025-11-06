@@ -495,9 +495,9 @@ class Trainer:
         self.model.train()
         total_loss = 0.0
         num_batches = len(self.train_loader)
-        
-        progress_bar = tqdm(self.train_loader, desc=f'Epoch {self.current_epoch+1} Training')
-        
+
+        progress_bar = tqdm(self.train_loader, desc=f'Epoch {self.current_epoch + 1} Training')
+
         for batch_idx, (images, masks, _) in enumerate(progress_bar):
             images = images.to(self.device)
             masks = masks.to(self.device).long()
@@ -513,17 +513,24 @@ class Trainer:
 
             self.optimizer.zero_grad()
 
-            outputs = self.model(images)
+            outputs = self.model(images)  # logits
 
-            # 1) 模型输出应为 logits，[B,2,H,W]，互斥
-            assert outputs.ndim == 4 and outputs.shape[1] == 2, f"bad logits shape: {outputs.shape}"
+            # --- 允许 1 通道或 2 通道 ---
+            assert outputs.ndim == 4 and outputs.shape[1] in (1, 2), \
+                f"bad logits shape: {outputs.shape} (expect [B,1,H,W] or [B,2,H,W])"
+            C = outputs.shape[1]
+
             with torch.no_grad():
-                s = torch.softmax(outputs, dim=1)
-                # 2) softmax 互斥性
-                _sum = s[:, 0] + s[:, 1]
-                assert torch.allclose(_sum, torch.ones_like(_sum), atol=1e-5), "softmax sum != 1"
-                # 3) 前景通道统计，快速看是否“全图前景”
-                p = s[:, 1]
+                # 统一前景概率 p：1通道→sigmoid(channel0)；2通道→softmax(channel1)
+                if C == 2:
+                    s = torch.softmax(outputs, dim=1)
+                    # 软互斥性自检（仅在2通道时）
+                    _sum = s[:, 0] + s[:, 1]
+                    assert torch.allclose(_sum, torch.ones_like(_sum), atol=1e-5), "softmax sum != 1"
+                    p = s[:, 1]
+                else:
+                    p = torch.sigmoid(outputs[:, 0])
+
                 frac_over_05 = (p >= 0.5).float().mean().item()
                 frac_over_08 = (p >= 0.8).float().mean().item()
                 if batch_idx % 50 == 0:
@@ -532,7 +539,6 @@ class Trainer:
 
             # === 统一得到 index 形式的 GT，做健壮性检查 ===
             if self.loss_needs_channel:
-                # 你上面可能把 masks 做成了 [B,1,H,W] 以适配 Dice/Tversky
                 masks_idx = masks.squeeze(1) if (masks.dim() == 4 and masks.size(1) == 1) else masks
             else:
                 masks_idx = masks  # CrossEntropy 时已是 [B,H,W]
@@ -544,60 +550,66 @@ class Trainer:
 
             if self.current_epoch == 0 and batch_idx < 2:
                 with torch.no_grad():
-                    # 假设二分类输出 [B,2,H,W]；若是一通道 sigmoid，请改成 torch.sigmoid(out[:,0])
-                    prob = torch.softmax(outputs, dim=1)
-                    fg = prob[:, 1]
-                    bg = prob[:, 0]
+                    if C == 2:
+                        prob = torch.softmax(outputs, dim=1)[:, 1]
+                        bg = torch.softmax(outputs, dim=1)[:, 0]
+                    else:
+                        prob = torch.sigmoid(outputs[:, 0])
+                        bg = 1.0 - prob
                     self.logger.info(
                         "[PROB-DIST] ep=%d it=%d fg[mean=%.4f, std=%.4f] "
                         "bg[mean=%.4f, std=%.4f] p_fg>0.5=%.3f p_fg>0.8=%.3f" %
                         (self.current_epoch, batch_idx,
-                         fg.mean().item(), fg.std().item(),
+                         prob.mean().item(), prob.std().item(),
                          bg.mean().item(), bg.std().item(),
-                         (fg > 0.5).float().mean().item(),
-                         (fg > 0.8).float().mean().item())
+                         (prob > 0.5).float().mean().item(),
+                         (prob > 0.8).float().mean().item())
                     )
 
             masks_for_loss = self._prep_target_for_loss(masks)
 
-            main_loss = self.dice_ce(outputs, masks_for_loss.float()) + 0.5 * self.tversky(outputs, masks_for_loss.float())
-            per_pixel = torch.abs(torch.sigmoid(outputs) - masks_for_loss.float())
+            # ---- 关键改动：损失一律用“前景单通道” ----
+            outputs_for_loss = outputs if C == 1 else outputs[:, 1:2]
+            main_loss = self.dice_ce(outputs_for_loss, masks_for_loss.float()) \
+                        + 0.5 * self.tversky(outputs_for_loss, masks_for_loss.float())
+
+            # 与损失口径一致，per-pixel 也用单通道的 sigmoid 概率
+            per_pixel = torch.abs(torch.sigmoid(outputs_for_loss) - masks_for_loss.float())
             per_sample = per_pixel.mean(dim=(1, 2, 3))
             fg_ratio = masks_for_loss.float().mean(dim=(1, 2, 3))
-            weights = torch.where(fg_ratio < 1e-6, torch.tensor(0.3, device=fg_ratio.device),
-                                  torch.tensor(1.0, device=fg_ratio.device))
+            weights = torch.where(
+                fg_ratio < 1e-6,
+                torch.tensor(0.3, device=fg_ratio.device),
+                torch.tensor(1.0, device=fg_ratio.device)
+            )
 
             norm = (per_sample.detach() + 1e-8) / (per_sample.detach().mean() + 1e-8)
             weighted = (weights * norm)
             loss = (weighted * main_loss).mean() if main_loss.ndim == 0 else (
-                        weighted * main_loss.mean(dim=(1, 2, 3))).mean()
-
+                    weighted * main_loss.mean(dim=(1, 2, 3))).mean()
 
             loss.backward()
 
-            # --- 在 loss.backward() 之后、optimizer.step() 之前插入 ---
+            # --- 梯度探针 ---
             if (self.current_epoch == 0) and (batch_idx == 0):
                 g_sum, n_has_grad = 0.0, 0
-                for _, p in self.model.named_parameters():
-                    if p.grad is not None:
-                        g_sum += p.grad.detach().abs().mean().item()
+                for _, p_ in self.model.named_parameters():
+                    if p_.grad is not None:
+                        g_sum += p_.grad.detach().abs().mean().item()
                         n_has_grad += 1
                 g_mean = g_sum / max(n_has_grad, 1)
                 self.logger.info(f"[GRAD-PROBE] mean(|grad|) on first batch = {g_mean:.6e}")
                 progress_bar.write(f"[GRAD-PROBE] mean(|grad|) on first batch = {g_mean:.6e}")
 
             self.optimizer.step()
-            
+
             total_loss += loss.item()
-            
+
             # Update progress bar
             progress_bar.set_postfix({
                 'Loss': f'{loss.item():.4f}',
-                'Avg Loss': f'{total_loss/(batch_idx+1):.4f}'
+                'Avg Loss': f'{total_loss / (batch_idx + 1):.4f}'
             })
-
-        # for i, (images, masks, _) in enumerate(self.train_loader):
-            # logging.debug(f"Batch {i} shape: {images.shape}")
 
         return total_loss / num_batches
 
