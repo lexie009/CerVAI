@@ -1,6 +1,6 @@
 model_name: "DeepLabV3Plus"
 in_channels: 3
-out_channels: 2
+out_channels: 1
 structure:
   encoder:
     name: "resnet34"
