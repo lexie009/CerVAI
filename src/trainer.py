@@ -310,6 +310,9 @@ class Trainer:
         
     def _setup_logging(self):
         """Setup logging to file and console."""
+        log_file = self.save_dir / "training.log"
+        self.save_dir.mkdir(parents=True, exist_ok=True)
+
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.INFO)
         self.logger.propagate = False
