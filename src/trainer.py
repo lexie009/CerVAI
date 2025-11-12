@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from monai.losses import DiceCELoss, TverskyLoss, FocalLoss
 from utils.evaluate_utils import _tta_logits, get_foreground_prob
+import math
 
 
 # MONAI metrics
@@ -277,6 +278,7 @@ class Trainer:
         self.post_pred = AsDiscrete(argmax=True)
         self.post_label = AsDiscrete(to_onehot=2)
 
+        self.val_probe_verbose = bool(self.config.get("val_probe_verbose", False))
 
         # Training state
         self.current_epoch = 0
@@ -308,17 +310,28 @@ class Trainer:
         
     def _setup_logging(self):
         """Setup logging to file and console."""
-        log_file = self.save_dir / 'training.log'
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler(log_file),
-                logging.StreamHandler()
-            ],
-            force=True
-        )
         self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(logging.INFO)
+        self.logger.propagate = False
+        need_file = True
+
+        for h in self.logger.handlers:
+            if isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", None) == str(log_file):
+                need_file = False
+                break
+
+        if need_file:
+            fh = logging.FileHandler(log_file)
+            fh.setLevel(logging.INFO)
+            fmt = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+            fh.setFormatter(fmt)
+            self.logger.addHandler(fh)
+
+        if not any(isinstance(h, logging.StreamHandler) for h in self.logger.handlers):
+            sh = logging.StreamHandler()
+            sh.setLevel(logging.INFO)
+            sh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+            self.logger.addHandler(sh)
 
     def _setup_loss(self):
         """Setup loss function."""
@@ -725,32 +738,34 @@ class Trainer:
                     fp = (pred1 * (1 - y)).sum().item()
                     fn = ((1 - pred1) * y).sum().item()
 
-                    if b_idx < 2:  # 只打头两批
-                        self.logger.info(
+                    if (b_idx < 2) and self.val_probe_verbose and self.logger.isEnabledFor(logging.DEBUG): # 只打头两批
+                        self.logger.debug(
                             f"[VAL-PROBE] thr={thr_:.2f} "
                             f"Dice(fg=ch1)={dice1.mean().item():.4f} "
                             f"Dice(fg=ch0)={dice0.mean().item():.4f} "
                             f"TP={tp:.0f} FP={fp:.0f} FN={fn:.0f}"
                         )
+
                 except Exception as e:
-                    if b_idx < 2:
-                        self.logger.warning(f"[VAL-PROBE] channel-swap probe failed: {e}")
+                    if b_idx < 2 and self.val_probe_verbose and self.logger.isEnabledFor(logging.DEBUG):
+                        self.logger.debug(f"[VAL-PROBE] channel-swap probe failed: {e}")
 
                 # [PROBE-2] foreground-prob quick stats (log once per validate)
-                if (b_idx == 0) and (not getattr(self, "_logged_fg_probe", False)):
+                if (b_idx == 0) and (not getattr(self, "_logged_fg_probe", False)) \
+                        and self.val_probe_verbose and self.logger.isEnabledFor(logging.DEBUG):
                     q = probs.detach().reshape(-1).float().cpu()
                     # 过滤 NaN/Inf，避免 .min/.mean 报错
                     q = q[torch.isfinite(q)]
                     if q.numel() > 0:
                         p50 = q.median().item()
                         frac = (q > selected_thr).float().mean().item()
-                        self.logger.info(
-                            f"[FG-prob] min={q.min():.3f} p50={p50:.3f} mean={q.mean():.3f} "
-                            f"max={q.max():.3f} | >thr({selected_thr:.2f})={frac:.3f}"
+                        self.logger.debug(
+                        f"[FG-prob] min={q.min():.3f} p50={p50:.3f} mean={q.mean():.3f} "
+                        f"max={q.max():.3f} | >thr({selected_thr:.2f})={frac:.3f}"
                         )
 
                     else:
-                        self.logger.info("[FG-prob] all probs invalid (empty after filtering)")
+                        self.logger.debug("[FG-prob] all probs invalid (empty after filtering)")
 
                     self._logged_fg_probe = True
                 # label_index: [B,H,W] {0,1}
@@ -784,6 +799,16 @@ class Trainer:
             hausdorff_score = float(self.hausdorff_metric.aggregate().item())
         except Exception:
             hausdorff_score = float("nan")
+
+        def _ok(v):
+            return (v is not None) and (not (isinstance(v, float) and (math.isnan(v) or math.isinf(v))))
+
+        if not all(_ok(v) for v in (dice_score, iou_score, hausdorff_score)):
+            self.logger.warning(
+                "[VAL-ALERT] got NaN/Inf in metrics at epoch %d (dice=%.4f iou=%.4f hd95=%s)",
+                self.current_epoch, dice_score, iou_score,
+                f"{hausdorff_score:.4f}" if isinstance(hausdorff_score, (int, float)) else "nan"
+                )
 
         metrics = {
             "dice": dice_score,
@@ -870,7 +895,7 @@ class Trainer:
                         try:
                             os.remove(p)
                             if hasattr(self, 'logger'):
-                                self.logger.info(f"Pruned old checkpoint: {p.name}")
+                                self.logger.debug(f"Pruned old checkpoint: {p.name}")
                         except Exception as e:
                             if hasattr(self, 'logger'):
                                 self.logger.warning(f"Failed to delete {p}: {e}")

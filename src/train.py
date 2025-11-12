@@ -559,19 +559,30 @@ def setup_experiment_dirs(output_dir: str, experiment_name: str) -> Dict[str, st
 
 
 def setup_experiment_logging(log_dir: str) -> None:
-    """Setup logging to include file handler."""
+    """Setup logging to include file handler (idempotent)."""
     log_file = os.path.join(log_dir, 'active_learning.log')
-    
-    # Add file handler to existing logger
+
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+
+    # 已存在相同文件的 handler 就不要重复加
+    for h in root.handlers:
+        if isinstance(h, logging.FileHandler) and getattr(h, 'baseFilename', None) == os.path.abspath(log_file):
+            # 已添加过该文件句柄
+            return
+
     file_handler = logging.FileHandler(log_file)
     file_handler.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     file_handler.setFormatter(formatter)
-    
-    # Add to root logger
-    logging.getLogger().addHandler(file_handler)
-    
+    root.addHandler(file_handler)
+
+    # 主 logger（例如 __name__ 或项目名）不向上冒泡，避免重复
+    logging.getLogger(__name__).propagate = False
+    logging.getLogger().propagate = False
+
     logger.info(f"Logging to file: {log_file}")
+
 
 
 def update_config_from_args(config: Dict[str, Any], args: Any, prefix: str = '') -> Dict[str, Any]:
@@ -710,7 +721,7 @@ def validate_visualize_sample(
         save_dir=viz_dir,
         num_samples=data_cfg.get("validation", {}).get("val_visualization_samples", 6),
         threshold=infer_thr,
-        keep_largest_cc=False,
+        keep_largest_cc=True,
         min_cc_area=0
     )
 
@@ -905,7 +916,9 @@ def active_learning_loop(
 
         if rnd > 0 and WARM_START and prev_best_path.exists():
             # 1) 仅加载上一轮权重
+            assert prev_best_path.exists(), f"[WarmStart] Prev best not found: {prev_best_path}"
             trainer.load_weights_only(str(prev_best_path), strict=True)
+            logger.info(f"[WarmStart] Loaded from {prev_best_path}")
 
             # 2) Phase-1：冻结 backbone，只训 head
             trainer.set_backbone_trainable(False)
@@ -921,6 +934,18 @@ def active_learning_loop(
             trainer.optimizer = trainer._setup_optimizer()
             trainer.scheduler = trainer._setup_scheduler()
             trainer.train()  # 用 Train.yaml 的 num_epochs
+
+        # ---- 兜底：本轮结束后，确保 best_model.pth 一定存在（目标 A）----
+        best_ckpt_path = trainer.save_dir / "best_model.pth"
+        if not best_ckpt_path.exists():
+            # 若训练过程中从未触发 is_best，最后一刻强制用当前状态存一次
+            try:
+            # 取当前 epoch；若没有则置 0
+                cur_ep = int(getattr(trainer, "current_epoch", 0))
+            except Exception:
+                cur_ep = 0
+        trainer.save_checkpoint(epoch=cur_ep, is_best=True)
+        logger.info(f"[BestCKPT] Forced save to {best_ckpt_path} (no best triggered in loop)")
 
         semi_cfg = train_config.get('semi', {})
         if semi_cfg.get('enable', False):

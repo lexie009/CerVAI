@@ -3,6 +3,7 @@ num_epochs: 50
 num_workers: 4
 early_stopping_patience: 30
 repeat_aug_k: 4
+val_probe_verbose: false
 
 optimizer:
   name: Adam

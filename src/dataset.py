@@ -81,7 +81,7 @@ class CervixDataset(Dataset):
 
         # === Sanity/Debug 统计 & 限流 ===
         self.logger = logging.getLogger(f"Dataset[{self.split}]")
-        self._dbg_limit = 5      # 只打印前 N 个样本的详细日志（可外部修改）
+        self._dbg_limit = int(os.environ.get("DATA_DBG_LIMIT", 0))      # 只打印前 N 个样本的详细日志（可外部修改）
         self._dbg_seen = 0       # 已经详细打印过的样本数
 
         self._seen = 0           # 访问样本总数
@@ -158,10 +158,14 @@ class CervixDataset(Dataset):
         mask = Image.open(mask_path).convert("L")
 
         # ==== 单样本调试总开关（该样本是否允许打印）====
-        dbg_ok = (str(self.split).lower() == 'train') and (self._dbg_seen < self._dbg_limit)
+        dbg_ok = (
+                str(self.split).lower() == 'train'
+                and (self._dbg_seen < self._dbg_limit)
+                and self.logger.isEnabledFor(logging.DEBUG)
+        )
 
         if dbg_ok:
-            self.logger.info(f"[DATA/IO] Opened mask: {mask_path}, original size: {mask.size}")
+            self.logger.debug(f"[DATA/IO] Opened mask: {mask_path}, original size: {mask.size}")
 
         if self.enable_roi:
             # 掩膜全 0 时，crop_by_auto 会回退为原图
@@ -181,7 +185,7 @@ class CervixDataset(Dataset):
             image = image.resize(self.target_size, resample=Image.BILINEAR)
             mask = mask.resize(self.target_size, resample=Image.NEAREST)
             if dbg_ok:
-                self.logger.info(f"[DATA/IO] Resized mask size (PIL): {mask.size}")
+                self.logger.debug(f"[DATA/IO] Opened mask: {mask_path}, original size: {mask.size}")
 
         # === [PROBE-1] 变换前检查（并做限流打印） ===
         m = np.array(mask, dtype=np.uint8)
@@ -197,7 +201,7 @@ class CervixDataset(Dataset):
 
         if dbg_ok:
             if getattr(self, "_use_det4", False):
-                self.logger.info(f"[AUG] det4 flip_id={flip_id}  (0:orig,1:H,2:V,3:H+V)")
+                self.logger.debug(f"[AUG] det4 flip_id={flip_id}  (0:orig,1:H,2:V,3:H+V)")
                 self._dbg_seen += 1
 
         if not set(u.tolist()) <= {0, 1, 255}:
@@ -205,15 +209,17 @@ class CervixDataset(Dataset):
             m = (m > 0).astype(np.uint8) * 255
             mask = Image.fromarray(m, mode="L")
         elif m.max() == 0 and dbg_ok:
-            self.logger.info(f"[DATA] All-zero mask @ {mask_path}")
+            self.logger.debug(f"[DATA] All-zero mask @ {mask_path}")
 
         mask_tensor_before = T.ToTensor()(mask)
         if dbg_ok:
-            self.logger.info(f"[DATA/TENSOR] Mask tensor before squeeze: {tuple(mask_tensor_before.shape)}")
+            self.logger.debug(f"[DATA/TENSOR] Mask tensor before squeeze: {tuple(mask_tensor_before.shape)}")
 
         if mask_tensor_before.shape[1:] != self.target_size:
             # 这种错误应无条件提示
-            print(f"[ERROR] ❌ Mask tensor shape mismatch: {tuple(mask_tensor_before.shape)} from {mask_path}")
+            self.logger.error(
+                f"[DATA] ❌ Mask tensor shape mismatch: {tuple(mask_tensor_before.shape)} from {mask_path}"
+            )
 
         # === 同步几何增强（只在 train）===
         if self.augment:
@@ -245,7 +251,7 @@ class CervixDataset(Dataset):
         pos_ratio_after = float((mask_after_t > 0.5).float().mean().item())
 
         if dbg_ok:
-            self.logger.info(
+            self.logger.debug(
                 f"[DATA/SANITY:postT] {self.split} sample={row['new_image_name']} "
                 f"img[tensor] min/max/mean=({image.min():.3f},{image.max():.3f},{image.mean():.3f}) "
                 f"mask_uniq={uniq_after.tolist()} pos_ratio={pos_ratio_after:.4f} "
@@ -279,18 +285,18 @@ class CervixDataset(Dataset):
 
         n = int(self._seen)
         if n <= 0:
-            self.logger.info("[DATA/SUMMARY] no samples seen yet.")
+            self.logger.debug("[DATA/SUMMARY] no samples seen yet.")
             return
 
         avg_pos = self._pos_sum / max(1, n)
-        self.logger.info(
+        self.logger.debug(
             "[DATA/SUMMARY] seen=%d  all_zero=%d  all_one=%d  avg_pos_ratio=%.4f",
             n, int(self._cnt_allzero), int(self._cnt_allone), float(avg_pos)
         )
 
         if reset:
             self._reset_counters()
-            self.logger.info("[DATA/SUMMARY] counters reset.")
+            self.logger.debug("[DATA/SUMMARY] counters reset.")
 
     def _reset_counters(self):
         """Reset sanity-check counters (and limited debug counter)."""
