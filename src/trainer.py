@@ -448,13 +448,52 @@ class Trainer:
 
     def load_weights_only(self, path: str, strict: bool = True):
         """
-        只加载模型权重，不恢复优化器/调度器/历史指标。
-        用于每轮 AL 前的 warm-start。
+        Robust loader for best_model.pth across torch versions.
+        - PyTorch 2.6 将 torch.load 的默认 weights_only 改为 True。
+        - 我们优先显式设 weights_only=False（我们自己保存的可信 ckpt）。
+        - 若异常，再退到 safe allowlist 方式；最终必要时降级 strict=False。
         """
-        ckpt = torch.load(path, map_location=self.device)
-        state = ckpt.get("model_state_dict", ckpt)  # 兼容直接存的 state_dict
-        self.model.load_state_dict(state, strict=strict)
-        self.logger.info(f"[WarmStart] Loaded weights from: {path} (optimizer/scheduler will be reset)")
+        ckpt = None
+
+        # 1) 首选：显式 weights_only=False（兼容 PyTorch 2.6）
+        try:
+            ckpt = torch.load(path, map_location=self.device, weights_only=False)
+        except TypeError:
+            # 老版本 torch 没有 weights_only 参数
+            ckpt = torch.load(path, map_location=self.device)
+        except Exception as e1:
+            # 2) 退路：添加安全全局，再按默认策略重试
+            try:
+                from torch.serialization import add_safe_globals
+                from torch.optim.lr_scheduler import ReduceLROnPlateau
+                add_safe_globals([ReduceLROnPlateau])
+                ckpt = torch.load(path, map_location=self.device)
+                if hasattr(self, "logger"):
+                    self.logger.warning("[WarmStart] Retried torch.load with safe_globals allowlist.")
+            except Exception as e2:
+                if hasattr(self, "logger"):
+                    self.logger.error(f"[WarmStart] Failed to load {path}: {e1} / {e2}")
+                raise
+
+        # 3) 解析 state_dict（支持多种键）
+        if isinstance(ckpt, dict) and "model" in ckpt:
+            state_dict = ckpt["model"]
+        elif isinstance(ckpt, dict) and "state_dict" in ckpt:
+            state_dict = ckpt["state_dict"]
+        else:
+            # 直接就是纯 state_dict
+            state_dict = ckpt
+
+        # 4) 尝试严格加载；失败则降级到 strict=False
+        try:
+            self.model.load_state_dict(state_dict, strict=strict)
+        except RuntimeError as e:
+            if hasattr(self, "logger"):
+                self.logger.warning(f"[WarmStart] strict load failed: {e}. Fallback to strict=False.")
+            self.model.load_state_dict(state_dict, strict=False)
+
+        if hasattr(self, "logger"):
+            self.logger.info(f"[WarmStart] Weights loaded from {path} (strict={strict})")
 
     def set_backbone_trainable(self, trainable: bool = True):
         """
@@ -836,75 +875,43 @@ class Trainer:
         """
         return self.validate(thr=best_thr)
 
-    def save_checkpoint(self, epoch: int, is_best: bool = False,
-                        interval: int = 5, max_to_keep: int = 3,
-                        light_ckpt: bool = True):
+    def save_checkpoint(self, epoch: int, is_best: bool = False):
         """
-        保存训练快照。
-        - interval: 每多少个 epoch 保存一次常规 ckpt（非 best）。
-        - max_to_keep: 常规 ckpt 只保留最近 N 个。
-        - light_ckpt: 常规 ckpt 是否轻量化（仅存模型权重），best 始终全量保存。
+        Save a training checkpoint.
+        - 常规 checkpoint：保存完整状态（模型/优化器/调度器/最佳指标）
+        - best checkpoint：仅保存“纯权重”（安全、轻量、跨版本友好）
         """
+        # 常规 epoch checkpoint（完整状态）
+        state = {
+            "epoch": epoch,
+            "model": self.model.state_dict(),
+            "optimizer": self.optimizer.state_dict() if self.optimizer is not None else None,
+            "scheduler": self.scheduler.state_dict() if self.scheduler is not None else None,
+            "best_dice": getattr(self, "best_dice", None),
+        }
+        ckpt_path = self.save_dir / f"checkpoint_epoch_{epoch}.pth"
+        try:
+            torch.save(state, ckpt_path)
+            if hasattr(self, "logger"):
+                self.logger.info(f"Saved checkpoint to {ckpt_path}")
+        except Exception as e:
+            if hasattr(self, "logger"):
+                self.logger.warning(f"Failed to save checkpoint {ckpt_path}: {e}")
 
-        # -------- 1) 是否到保存间隔（best 始终保存） --------
-        if not is_best and (epoch % interval != 0):
-            return  # 非 best 且未到间隔，直接返回
-
-        # -------- 2) 组装要保存的内容 --------
-        if is_best or not light_ckpt:
-            checkpoint = {
-                'epoch': epoch,
-                'model_state_dict': self.model.state_dict(),
-                'optimizer_state_dict': self.optimizer.state_dict(),
-                'scheduler_state_dict': self.scheduler.state_dict() if self.scheduler is not None else None,
-                'best_dice': getattr(self, 'best_dice', None),
-                'best_loss': getattr(self, 'best_loss', None),
-                'training_history': getattr(self, 'training_history', None),
-            }
-        else:
-            # 轻量 ckpt：大幅节省空间
-            checkpoint = {
-                'epoch': epoch,
-                'model_state_dict': self.model.state_dict(),
-            }
-
-        # -------- 3) 路径与实际保存 --------
         if is_best:
-            best_path = self.save_dir / 'best_model.pth'
-            torch.save(checkpoint, best_path)
-            if hasattr(self, 'logger'):
-                self.logger.info(
-                    f"New best model saved (epoch {epoch}) with Dice: {getattr(self, 'best_dice', float('nan')):.4f}")
-        else:
-            ckpt_path = self.save_dir / f'checkpoint_epoch_{epoch}.pth'
-            torch.save(checkpoint, ckpt_path)
-
-            # -------- 4) 只保留最近 N 个常规 ckpt --------
+            # ✅ best 仅保存纯权重，避免不安全对象进入文件（例如调度器类）
+            best_path = self.save_dir / "best_model.pth"
+            safe_best = {"model": self.model.state_dict()}
             try:
-                import re, os
-                all_ckpts = [p for p in self.save_dir.glob('checkpoint_epoch_*.pth')]
-
-                # 按 epoch 数字排序
-                def _ep(p):
-                    m = re.search(r'checkpoint_epoch_(\d+)\.pth$', p.name)
-                    return int(m.group(1)) if m else -1
-
-                all_ckpts.sort(key=_ep)
-
-                # 删除多余的旧文件
-                if len(all_ckpts) > max_to_keep:
-                    to_del = all_ckpts[:len(all_ckpts) - max_to_keep]
-                    for p in to_del:
-                        try:
-                            os.remove(p)
-                            if hasattr(self, 'logger'):
-                                self.logger.debug(f"Pruned old checkpoint: {p.name}")
-                        except Exception as e:
-                            if hasattr(self, 'logger'):
-                                self.logger.warning(f"Failed to delete {p}: {e}")
+                torch.save(safe_best, best_path)
+                if hasattr(self, "logger"):
+                    self.logger.info(f"[BestCKPT] Saved BEST weights to {best_path}")
             except Exception as e:
-                if hasattr(self, 'logger'):
-                    self.logger.warning(f"Prune checkpoints failed: {e}")
+                if hasattr(self, "logger"):
+                    self.logger.warning(f"Failed to save BEST weights {best_path}: {e}")
+
+        # （可选降噪）如果这里有旧 ckpt 清理，把 INFO 改为 DEBUG 防刷屏：
+        # self.logger.debug(f"Pruned old checkpoint: {p.name}")
 
     def train(self, num_epochs: int = None):
         """Main training loop."""
