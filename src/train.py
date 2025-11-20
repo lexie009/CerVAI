@@ -944,8 +944,7 @@ def active_learning_loop(
         LR_HEAD_P2 = float(al_ft_cfg.get("lr_head_full", LR_HEAD_P1))  # full 阶段 head lr
 
         if rnd > 0 and WARM_START and prev_best_path.exists():
-            # 1) 仅加载上一轮权重
-            assert prev_best_path.exists(), f"[WarmStart] Prev best not found: {prev_best_path}"
+            # 1) 先加载上一轮的 best 权重
             trainer.load_weights_only(str(prev_best_path), strict=True)
             logger.info(f"[WarmStart] Loaded from {prev_best_path}")
 
