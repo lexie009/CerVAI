@@ -958,7 +958,17 @@ class Trainer:
             self.training_history['val_hausdorff'].append(val_metrics['hausdorff95'])
             
             # Check for best model
-            is_best = val_metrics['dice'] > self.best_dice
+            # is_best = val_metrics['dice'] > self.best_dice
+            # if is_best:
+            #     self.best_dice = val_metrics['dice']
+            #     self.best_loss = val_loss
+            #     self.early_stopping_counter = 0
+            # else:
+            #     self.early_stopping_counter += 1
+            cur_dice = val_metrics['dice']
+
+            is_best = cur_dice > self.best_dice_round  # 当轮 best 判定
+
             if is_best:
                 self.best_dice = val_metrics['dice']
                 self.best_loss = val_loss
