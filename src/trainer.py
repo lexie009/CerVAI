@@ -405,7 +405,7 @@ class Trainer:
         if opt_name == 'Adam':
             return optim.Adam(
                 self.model.parameters(),
-                lr=opt_config['lr'],
+                lr=float(opt_config['lr']),
                 weight_decay=float(opt_config.get('weight_decay', 0))
             )
         else:
