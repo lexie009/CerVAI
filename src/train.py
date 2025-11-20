@@ -958,7 +958,7 @@ def active_learning_loop(
             trainer.setup_optimizer_with_lrs(lr_backbone=LR_BB_P2, lr_head=LR_HEAD_P2)
             trainer.train(num_epochs=FULL_EPOCHS)
         else:
-            # 第一轮或没有上一轮 best：按原始配置从头训练
+            # 第 0 轮（warm-start round）或者没有 prev_best：按原配置完整训练
             trainer.optimizer = trainer._setup_optimizer()
             trainer.scheduler = trainer._setup_scheduler()
             trainer.train()  # 用 Train.yaml 的 num_epochs
