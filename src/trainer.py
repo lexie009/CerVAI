@@ -970,7 +970,7 @@ class Trainer:
             is_best = cur_dice > self.best_dice_round  # 当轮 best 判定
 
             if is_best:
-                self.best_dice = val_metrics['dice']
+                self.best_dice_round = cur_dice  # 当前这轮里最好的 dice
                 self.best_loss = val_loss
                 self.early_stopping_counter = 0
             else:
