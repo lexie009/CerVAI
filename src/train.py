@@ -951,7 +951,7 @@ def active_learning_loop(
             # 2) Phase 1: 冻结 backbone，只训 head 少量 epoch
             trainer.set_backbone_trainable(False)
             trainer.setup_optimizer_with_lrs(lr_backbone=0.0, lr_head=LR_HEAD_P1)
-            trainer.train(num_epochs=PHASE1_EPOCHS)
+            trainer.train(num_epochs=HEAD_EPOCHS)
 
             # 3) Phase-2：解冻，分层 lr 继续训练
             trainer.set_backbone_trainable(True)
