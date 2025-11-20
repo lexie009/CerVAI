@@ -953,7 +953,7 @@ def active_learning_loop(
             trainer.setup_optimizer_with_lrs(lr_backbone=0.0, lr_head=LR_HEAD_P1)
             trainer.train(num_epochs=HEAD_EPOCHS)
 
-            # 3) Phase-2：解冻，分层 lr 继续训练
+            # 3) Phase 2: 解冻 backbone，全网络用小 lr 再训少量 epoch
             trainer.set_backbone_trainable(True)
             trainer.setup_optimizer_with_lrs(lr_backbone=LR_BB_P2, lr_head=LR_HEAD_P2)
             trainer.train(num_epochs=PHASE2_EPOCHS)
