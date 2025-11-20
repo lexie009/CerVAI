@@ -956,7 +956,7 @@ def active_learning_loop(
             # 3) Phase 2: 解冻 backbone，全网络用小 lr 再训少量 epoch
             trainer.set_backbone_trainable(True)
             trainer.setup_optimizer_with_lrs(lr_backbone=LR_BB_P2, lr_head=LR_HEAD_P2)
-            trainer.train(num_epochs=PHASE2_EPOCHS)
+            trainer.train(num_epochs=FULL_EPOCHS)
         else:
             # 第一轮或没有上一轮 best：按原始配置从头训练
             trainer.optimizer = trainer._setup_optimizer()
