@@ -948,7 +948,7 @@ def active_learning_loop(
             trainer.load_weights_only(str(prev_best_path), strict=True)
             logger.info(f"[WarmStart] Loaded from {prev_best_path}")
 
-            # 2) Phase-1：冻结 backbone，只训 head
+            # 2) Phase 1: 冻结 backbone，只训 head 少量 epoch
             trainer.set_backbone_trainable(False)
             trainer.setup_optimizer_with_lrs(lr_backbone=0.0, lr_head=LR_HEAD_P1)
             trainer.train(num_epochs=PHASE1_EPOCHS)
