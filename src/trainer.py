@@ -860,11 +860,11 @@ class Trainer:
         }
 
         # 维护 best 记录
-        if dice_score > getattr(self, "best_dice_round", -1):
-            self.best_dice_round = dice_score
-        if dice_score > getattr(self, "best_dice_global", -1):
-            self.best_dice_global = dice_score
-            self.best_dice = dice_score
+        # if dice_score > getattr(self, "best_dice_round", -1):
+        #     self.best_dice_round = dice_score
+        # if dice_score > getattr(self, "best_dice_global", -1):
+        #     self.best_dice_global = dice_score
+        #     self.best_dice = dice_score
 
         return avg_loss, metrics
 
