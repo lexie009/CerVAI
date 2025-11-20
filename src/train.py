@@ -972,8 +972,8 @@ def active_learning_loop(
                 cur_ep = int(getattr(trainer, "current_epoch", 0))
             except Exception:
                 cur_ep = 0
-        trainer.save_checkpoint(epoch=cur_ep, is_best=True)
-        logger.info(f"[BestCKPT] Forced save to {best_ckpt_path} (no best triggered in loop)")
+            trainer.save_checkpoint(epoch=cur_ep, is_best=True)
+            logger.info(f"[BestCKPT] Forced save to {best_ckpt_path} (no best triggered in loop)")
 
         semi_cfg = train_config.get('semi', {})
         if semi_cfg.get('enable', False):
