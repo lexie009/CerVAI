@@ -973,6 +973,11 @@ class Trainer:
                 self.best_dice_round = cur_dice  # 当前这轮里最好的 dice
                 self.best_loss = val_loss
                 self.early_stopping_counter = 0
+
+                # 顺便更新一下全局 best（跨 round 用）
+                if cur_dice > self.best_dice_global:
+                    self.best_dice_global = cur_dice
+                    self.best_dice = cur_dice  # 如果你还想保留 self.best_dice 这个名字
             else:
                 self.early_stopping_counter += 1
             
