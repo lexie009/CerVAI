@@ -920,6 +920,10 @@ class Trainer:
         self.logger.info(f"Training samples: {len(self.train_dataset)}")
         self.logger.info(f"Validation samples: {len(self.val_dataset)}")
 
+        self.best_dice_round = -1.0
+        self.best_loss = float('inf')
+        self.early_stopping_counter = 0
+
         # 支持传入 num_epochs 覆盖配置
         total_epochs = int(num_epochs) if num_epochs is not None else int(self.config['num_epochs'])
         early_stopping_patience = int(self.config.get('early_stopping_patience', 10))
