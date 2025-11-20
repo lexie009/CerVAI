@@ -96,7 +96,8 @@ class CervixDataset(Dataset):
         self.df = pd.read_csv(csv_path) if isinstance(csv_path, str) else csv_path.copy()
 
         if use_labeled_only:
-            self.df = self.df[self.df.get("labeled", 1) == 1]
+            if "labeled" in self.df.columns:
+                self.df = self.df[self.df["labeled"] == 1]
 
         if set_filter:
             self.df = self.df[self.df['set'] == set_filter]

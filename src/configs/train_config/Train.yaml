@@ -1,5 +1,5 @@
 batch_size: 4
-num_epochs: 50
+num_epochs: 10
 num_workers: 4
 early_stopping_patience: 30
 repeat_aug_k: 4
@@ -36,8 +36,11 @@ scheduler:
 
 val_plot_slice_interval: 1
 sampling:
+  strategy: entropy_mc
+  enable_mc_dropout: true
+  mc_iterations: 8
   num_cycles: 5
-  budget: 30
+  budget: 15
 
 save_dir: ./checkpoints
 device: cuda
@@ -51,3 +54,9 @@ semi:
   min_area: 10
   ignore_border_px: 2
   lr: 1.0e-4
+
+al_finetune:
+  head_epochs: 3
+  full_epochs: 3
+  lr_backbone: 1e-4
+  lr_head: 5e-4
