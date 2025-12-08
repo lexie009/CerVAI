@@ -405,7 +405,7 @@ class Trainer:
         if opt_name == 'Adam':
             return optim.Adam(
                 self.model.parameters(),
-                lr=opt_config['lr'],
+                lr=float(opt_config['lr']),
                 weight_decay=float(opt_config.get('weight_decay', 0))
             )
         else:
@@ -860,11 +860,11 @@ class Trainer:
         }
 
         # 维护 best 记录
-        if dice_score > getattr(self, "best_dice_round", -1):
-            self.best_dice_round = dice_score
-        if dice_score > getattr(self, "best_dice_global", -1):
-            self.best_dice_global = dice_score
-            self.best_dice = dice_score
+        # if dice_score > getattr(self, "best_dice_round", -1):
+        #     self.best_dice_round = dice_score
+        # if dice_score > getattr(self, "best_dice_global", -1):
+        #     self.best_dice_global = dice_score
+        #     self.best_dice = dice_score
 
         return avg_loss, metrics
 
@@ -920,6 +920,10 @@ class Trainer:
         self.logger.info(f"Training samples: {len(self.train_dataset)}")
         self.logger.info(f"Validation samples: {len(self.val_dataset)}")
 
+        self.best_dice_round = -1.0
+        self.best_loss = float('inf')
+        self.early_stopping_counter = 0
+
         # 支持传入 num_epochs 覆盖配置
         total_epochs = int(num_epochs) if num_epochs is not None else int(self.config['num_epochs'])
         early_stopping_patience = int(self.config.get('early_stopping_patience', 10))
@@ -954,11 +958,26 @@ class Trainer:
             self.training_history['val_hausdorff'].append(val_metrics['hausdorff95'])
             
             # Check for best model
-            is_best = val_metrics['dice'] > self.best_dice
+            # is_best = val_metrics['dice'] > self.best_dice
+            # if is_best:
+            #     self.best_dice = val_metrics['dice']
+            #     self.best_loss = val_loss
+            #     self.early_stopping_counter = 0
+            # else:
+            #     self.early_stopping_counter += 1
+            cur_dice = val_metrics['dice']
+
+            is_best = cur_dice > self.best_dice_round  # 当轮 best 判定
+
             if is_best:
-                self.best_dice = val_metrics['dice']
+                self.best_dice_round = cur_dice  # 当前这轮里最好的 dice
                 self.best_loss = val_loss
                 self.early_stopping_counter = 0
+
+                # 顺便更新一下全局 best（跨 round 用）
+                if cur_dice > self.best_dice_global:
+                    self.best_dice_global = cur_dice
+                    self.best_dice = cur_dice  # 如果你还想保留 self.best_dice 这个名字
             else:
                 self.early_stopping_counter += 1
             

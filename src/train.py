@@ -907,30 +907,58 @@ def active_learning_loop(
         prev_best_path = Path(dirs["checkpoints"]) / f"round{rnd - 1}" / "best_model.pth"
         # 可调参数（也可做成 YAML 或 CLI）
         WARM_START = True
-        PHASE1_EPOCHS = 5  # 先冻 3~5 个 epoch
-        TOTAL_EPOCHS = int(train_config.get("num_epochs", 20))
-        PHASE2_EPOCHS = max(0, TOTAL_EPOCHS - PHASE1_EPOCHS)
-        LR_HEAD_P1 = float(train_config.get("optimizer", {}).get("lr_head_p1", 5e-4))
-        LR_BB_P2 = float(train_config.get("optimizer", {}).get("lr_backbone_p2", 1e-4))
-        LR_HEAD_P2 = float(train_config.get("optimizer", {}).get("lr_head_p2", 5e-4))
+        # PHASE1_EPOCHS = 5  # 先冻 3~5 个 epoch
+        # TOTAL_EPOCHS = int(train_config.get("num_epochs", 20))
+        # PHASE2_EPOCHS = max(0, TOTAL_EPOCHS - PHASE1_EPOCHS)
+        # LR_HEAD_P1 = float(train_config.get("optimizer", {}).get("lr_head_p1", 5e-4))
+        # LR_BB_P2 = float(train_config.get("optimizer", {}).get("lr_backbone_p2", 1e-4))
+        # LR_HEAD_P2 = float(train_config.get("optimizer", {}).get("lr_head_p2", 5e-4))
+        #
+        # if rnd > 0 and WARM_START and prev_best_path.exists():
+        #     # 1) 仅加载上一轮权重
+        #     assert prev_best_path.exists(), f"[WarmStart] Prev best not found: {prev_best_path}"
+        #     trainer.load_weights_only(str(prev_best_path), strict=True)
+        #     logger.info(f"[WarmStart] Loaded from {prev_best_path}")
+        #
+        #     # 2) Phase-1：冻结 backbone，只训 head
+        #     trainer.set_backbone_trainable(False)
+        #     trainer.setup_optimizer_with_lrs(lr_backbone=0.0, lr_head=LR_HEAD_P1)
+        #     trainer.train(num_epochs=PHASE1_EPOCHS)
+        #
+        #     # 3) Phase-2：解冻，分层 lr 继续训练
+        #     trainer.set_backbone_trainable(True)
+        #     trainer.setup_optimizer_with_lrs(lr_backbone=LR_BB_P2, lr_head=LR_HEAD_P2)
+        #     trainer.train(num_epochs=PHASE2_EPOCHS)
+        # else:
+        #     # 第一轮或没有上一轮 best：按原始配置从头训练
+        #     trainer.optimizer = trainer._setup_optimizer()
+        #     trainer.scheduler = trainer._setup_scheduler()
+        #     trainer.train()  # 用 Train.yaml 的 num_epochs
+        # 从 YAML 里读小步训练配置（否则给默认值）
+        al_ft_cfg = train_config.get("al_finetune", {})
+        HEAD_EPOCHS = int(al_ft_cfg.get("head_epochs", 3))  # 只训几轮 head
+        FULL_EPOCHS = int(al_ft_cfg.get("full_epochs", 3))  # 再训几轮全网络
+
+        LR_HEAD_P1 = float(al_ft_cfg.get("lr_head", 5e-4))  # head-only 阶段 lr
+        LR_BB_P2 = float(al_ft_cfg.get("lr_backbone", 1e-4))  # full finetune 阶段 backbone lr
+        LR_HEAD_P2 = float(al_ft_cfg.get("lr_head_full", LR_HEAD_P1))  # full 阶段 head lr
 
         if rnd > 0 and WARM_START and prev_best_path.exists():
-            # 1) 仅加载上一轮权重
-            assert prev_best_path.exists(), f"[WarmStart] Prev best not found: {prev_best_path}"
+            # 1) 先加载上一轮的 best 权重
             trainer.load_weights_only(str(prev_best_path), strict=True)
             logger.info(f"[WarmStart] Loaded from {prev_best_path}")
 
-            # 2) Phase-1：冻结 backbone，只训 head
+            # 2) Phase 1: 冻结 backbone，只训 head 少量 epoch
             trainer.set_backbone_trainable(False)
             trainer.setup_optimizer_with_lrs(lr_backbone=0.0, lr_head=LR_HEAD_P1)
-            trainer.train(num_epochs=PHASE1_EPOCHS)
+            trainer.train(num_epochs=HEAD_EPOCHS)
 
-            # 3) Phase-2：解冻，分层 lr 继续训练
+            # 3) Phase 2: 解冻 backbone，全网络用小 lr 再训少量 epoch
             trainer.set_backbone_trainable(True)
             trainer.setup_optimizer_with_lrs(lr_backbone=LR_BB_P2, lr_head=LR_HEAD_P2)
-            trainer.train(num_epochs=PHASE2_EPOCHS)
+            trainer.train(num_epochs=FULL_EPOCHS)
         else:
-            # 第一轮或没有上一轮 best：按原始配置从头训练
+            # 第 0 轮（warm-start round）或者没有 prev_best：按原配置完整训练
             trainer.optimizer = trainer._setup_optimizer()
             trainer.scheduler = trainer._setup_scheduler()
             trainer.train()  # 用 Train.yaml 的 num_epochs
@@ -944,8 +972,8 @@ def active_learning_loop(
                 cur_ep = int(getattr(trainer, "current_epoch", 0))
             except Exception:
                 cur_ep = 0
-        trainer.save_checkpoint(epoch=cur_ep, is_best=True)
-        logger.info(f"[BestCKPT] Forced save to {best_ckpt_path} (no best triggered in loop)")
+            trainer.save_checkpoint(epoch=cur_ep, is_best=True)
+            logger.info(f"[BestCKPT] Forced save to {best_ckpt_path} (no best triggered in loop)")
 
         semi_cfg = train_config.get('semi', {})
         if semi_cfg.get('enable', False):
