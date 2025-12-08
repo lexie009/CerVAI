@@ -30,8 +30,10 @@ def _forward_backbone(model, x):
         return feats
 
     if hasattr(model, "encoder"):                        # smp.Unet 等
-        feats_list = model.encoder(x)                    # list of stage outputs
-        return feats_list[-1]                            # 取最后一级 (B,C,H,W)
+        feats = model.encoder(x)
+        if isinstance(feats, (list, tuple)):
+            return feats[-1]
+        return feats                           # 取最后一级 (B,C,H,W)
 
     if hasattr(model, "base_model") and hasattr(model.base_model, "encoder"):
         feats_list = model.base_model.encoder(x)

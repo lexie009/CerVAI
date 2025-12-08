@@ -64,6 +64,15 @@ class UNet(nn.Module):
 
         self.out_conv = nn.Conv2d(c1, num_classes, kernel_size=1)
 
+    def encode(self, x):
+        """模仿 smp.Unet 的 encoder 输出形式：返回每一层的特征 list"""
+        e1 = self.encoder1(x)
+        e2 = self.encoder2(e1)
+        e3 = self.encoder3(e2)
+        e4 = self.encoder4(e3)
+        b = self.bottleneck(e4)
+        return [e1, e2, e3, e4, b]
+
     def forward(self, x):
         e1 = self.encoder1(x)
         e2 = self.encoder2(e1)
