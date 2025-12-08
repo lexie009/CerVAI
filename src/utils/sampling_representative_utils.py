@@ -33,7 +33,7 @@ def _forward_backbone(model, x):
         feats = model.encoder(x)
         if isinstance(feats, (list, tuple)):
             return feats[-1]
-        return feats                           # 取最后一级 (B,C,H,W)
+        return feats
 
     if hasattr(model, "base_model") and hasattr(model.base_model, "encoder"):
         feats_list = model.base_model.encoder(x)
