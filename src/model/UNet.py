@@ -53,8 +53,16 @@ class UNet(nn.Module):
         self.encoder2 = Down(c1, c2)
         self.encoder3 = Down(c2, c3)
         self.encoder4 = Down(c3, c4)
-
         self.bottleneck = Down(c4, c5)
+
+        self.encoder = nn.Sequential(
+            self.encoder1,
+            self.encoder2,
+            self.encoder3,
+            self.encoder4,
+            self.bottleneck,
+        )
+
 
         # decoder
         self.up1 = Up(c5, c4)
@@ -63,6 +71,14 @@ class UNet(nn.Module):
         self.up4 = Up(c2, c1)
 
         self.out_conv = nn.Conv2d(c1, num_classes, kernel_size=1)
+
+    def encode(self, x):
+        e1 = self.encoder1(x)
+        e2 = self.encoder2(e1)
+        e3 = self.encoder3(e2)
+        e4 = self.encoder4(e3)
+        b = self.bottleneck(e4)
+        return [e1, e2, e3, e4, b]
 
     def forward(self, x):
         e1 = self.encoder1(x)
