@@ -1,6 +1,7 @@
 from typing import Dict, Any
 from .UNet import UNet
 from .DeepLabV3Plus import DeepLabV3Plus
+from .UNetpp import UNetpp
 
 def build_model(name: str, cfg: Dict[str, Any]):
     name = (name or "").lower()
@@ -11,5 +12,7 @@ def build_model(name: str, cfg: Dict[str, Any]):
         return UNet(in_channels=in_ch, base_channels=base, num_classes=nclass)
     elif name in ["deeplabv3plus", "deeplabv3+", "deeplab"]:
         return DeepLabV3Plus(cfg)
+    elif name in ["unetplusplus", "unet++", "unetpp"]:
+        return UNetpp(cfg)
     else:
         raise ValueError(f"Unknown model name: {name}")

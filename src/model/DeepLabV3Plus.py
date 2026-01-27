@@ -36,6 +36,7 @@ class DeepLabV3Plus(nn.Module):
         #     self.activation = nn.Sigmoid()
         # else:
         #     self.activation = nn.Identity()
+
         # only output logits
         self.activation = nn.Identity()
 
@@ -44,7 +45,6 @@ class DeepLabV3Plus(nn.Module):
 
         if self.use_dropout and mc_dropout:
             logits = F.dropout2d(logits, p=self.dropout_p, training=True)
-
         return logits
 
     def sample_predict(self, x, T=10):

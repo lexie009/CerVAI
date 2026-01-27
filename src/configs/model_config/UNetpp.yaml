@@ -1,0 +1,10 @@
+model_name: "UNetPlusPlus"
+in_channels: 3
+out_channels: 1
+structure:
+  encoder:
+    name: "resnet34"
+    pretrained: true
+    encoder_weights: "imagenet"
+  head:
+    activation: "sigmoid"
