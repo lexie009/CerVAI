@@ -34,22 +34,29 @@ class RandomSampler(BaseSampler):
     # ---------------------------------------------------------
     def select(self, unlabeled_dataloader):
         """
-        参数 `unlabeled_dataloader` 仍然保留，但本策略并不真正使用它。
-        这样可以保持与其他采样器的统一接口。
+        参数 `unlabeled_dataloader` 仍然保留，但这里需要用它来做 local -> global 映射。
         """
         tic = time.time()
-        n_pool = len(self.unlabeled_indices)
+
+        subset = unlabeled_dataloader.dataset
+        base_dataset = subset.dataset  # full_train_ds
+        local_pool = list(subset.indices)  # local index in base_dataset
+
+        n_pool = len(local_pool)
 
         if self.budget is None:
             raise ValueError("RandomSampler expects a non-None budget.")
         if self.budget > n_pool:
             raise ValueError(f"Budget {self.budget} > unlabeled pool size {n_pool}")
 
-        # ------------ 真正随机抽样 ------------
-        selected_indices = random.sample(self.unlabeled_indices, self.budget)
+        # 先从 local indices 里随机抽
+        selected_local = random.sample(local_pool, self.budget)
+
+        # 再映射成 global CSV index
+        selected_indices = [int(base_dataset.df.iloc[i].name) for i in selected_local]
+
         elapsed = time.time() - tic
 
-        # ------------ 记录日志 ------------
         self.sampling_logger.log_message(
             f"Randomly selected {len(selected_indices)} / {n_pool} samples "
             f"in {elapsed:.2f} s (budget={self.budget})"
@@ -57,10 +64,10 @@ class RandomSampler(BaseSampler):
         self.sampling_logger.save_indices(selected_indices)
         self.sampling_logger.save_metadata(
             {
-                "strategy"        : "Random",
-                "budget"          : self.budget,
-                "num_unlabeled"   : n_pool,
-                "sampling_time_s" : elapsed,
+                "strategy": "Random",
+                "budget": self.budget,
+                "num_unlabeled": n_pool,
+                "sampling_time_s": elapsed,
             }
         )
 
