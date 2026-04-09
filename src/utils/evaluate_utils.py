@@ -139,11 +139,24 @@ def evaluate_basic(model, dataloader, device, threshold: float = 0.5) -> dict:
             iou_scores.append((inter + 1e-5) / (union + 1e-5))
 
             # HD95 with one-hot
-            pred_t   = torch.from_numpy(pred[None,...]).to(device)
-            target_t = torch.from_numpy(target[None,...]).to(device)
-            pred_oh   = F.one_hot(pred_t.long(), 2).permute(0,3,1,2).float()
-            target_oh = F.one_hot(target_t.long(), 2).permute(0,3,1,2).float()
-            hd95_scores.append(float(hd95_metric(pred_oh, target_oh).item()))
+            #pred_t   = torch.from_numpy(pred[None,...]).to(device)
+            #target_t = torch.from_numpy(target[None,...]).to(device)
+            #pred_oh   = F.one_hot(pred_t.long(), 2).permute(0,3,1,2).float()
+            #target_oh = F.one_hot(target_t.long(), 2).permute(0,3,1,2).float()
+            #hd95_scores.append(float(hd95_metric(pred_oh, target_oh).item()))
+
+            # HD95 with one-hot (force CPU to avoid MONAI/cucim/cupy CUDA compile issues)
+            pred_t = torch.from_numpy(pred[None, ...]).long()  # stay on CPU
+            target_t = torch.from_numpy(target[None, ...]).long()  # stay on CPU
+
+            pred_oh = F.one_hot(pred_t, 2).permute(0, 3, 1, 2).float()
+            target_oh = F.one_hot(target_t, 2).permute(0, 3, 1, 2).float()
+
+            try:
+                hd95_scores.append(float(hd95_metric(pred_oh, target_oh).item()))
+            except Exception as e:
+                logger.warning(f"HD95 failed for one sample, set to NaN: {e}")
+                hd95_scores.append(np.nan)
 
     return {
         "dice": float(np.nanmean(dice_scores)),
