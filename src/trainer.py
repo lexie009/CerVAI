@@ -828,7 +828,7 @@ class Trainer:
                 self.dice_metric(y_pred=pred_oh, y=label_oh)
                 self.iou_metric(y_pred=pred_oh, y=label_oh)
                 # HausdorffDistanceMetric 对空掩膜会有告警，交给 try/except 聚合时兜底
-                self.hausdorff_metric(y_pred=pred_oh.cpu(), y=label_oh)
+                self.hausdorff_metric(y_pred=pred_oh.cpu(), y=label_oh.cpu())
 
                 progress_bar.set_postfix({"Val Loss": f"{loss.item():.4f}", "thr": f"{selected_thr:.2f}"})
 
