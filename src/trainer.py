@@ -216,7 +216,7 @@ class Trainer:
         self.val_dataset = val_dataset
         
         # Set random seed for reproducibility
-        self._set_seed(42)
+        self._set_seed(config.get("seed", 42))
         
         # Device setup
         self.device = torch.device(config.get('device', 'cuda') if torch.cuda.is_available() else 'cpu')

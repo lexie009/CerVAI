@@ -379,7 +379,6 @@ def create_datasets(csv_path: str,
     Create train/val/test datasets.
     """
     datasets = {}
-    set_seed(42)
 
     for split in ['train', 'val', 'test']:
         image_dir = os.path.join(base_dir, split, "images")

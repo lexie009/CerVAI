@@ -388,7 +388,7 @@ def sample_images_wrapper(strategy: str,
         dataset=dataset,
         unlabeled_dataloader=unlabeled_loader,
         trainer=trainer,
-        seed=42,
+        seed=seed,
         device=device,
         unlabeled_indices=unlabeled_indices
     )
@@ -766,7 +766,7 @@ def active_learning_loop(
                             dirs: Dict[str, str],
                             device: torch.device,
                             model_name: str,
-                            seed: int = 42,
+                            seed: int,
                         ) -> Dict[str, Any]:
     """
     Run round-0 warm-start + N active-learning cycles.
@@ -1185,6 +1185,8 @@ def main():
     train_config = load_config(args.train_config)
     data_config = load_config(args.data_config)
     model_config = load_config(args.model_config)
+
+    train_config["seed"] = args.seed
 
     train_config.setdefault('inference', {})
     train_config['inference']['threshold'] = args.inference__threshold
