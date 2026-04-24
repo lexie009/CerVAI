@@ -882,33 +882,36 @@ class Trainer:
         - best checkpoint：仅保存“纯权重”（安全、轻量、跨版本友好）
         """
         # 常规 epoch checkpoint（完整状态）
-        state = {
-            "epoch": epoch,
-            "model": self.model.state_dict(),
-            "optimizer": self.optimizer.state_dict() if self.optimizer is not None else None,
-            "scheduler": self.scheduler.state_dict() if self.scheduler is not None else None,
-            "best_dice": getattr(self, "best_dice", None),
-        }
-        ckpt_path = self.save_dir / f"checkpoint_epoch_{epoch}.pth"
+        # state = {
+        #     "epoch": epoch,
+        #     "model": self.model.state_dict(),
+        #     "optimizer": self.optimizer.state_dict() if self.optimizer is not None else None,
+        #     "scheduler": self.scheduler.state_dict() if self.scheduler is not None else None,
+        #     "best_dice": getattr(self, "best_dice", None),
+        # }
+        # ckpt_path = self.save_dir / f"checkpoint_epoch_{epoch}.pth"
+        # try:
+        #     torch.save(state, ckpt_path)
+        #     if hasattr(self, "logger"):
+        #         self.logger.info(f"Saved checkpoint to {ckpt_path}")
+        # except Exception as e:
+        #     if hasattr(self, "logger"):
+        #         self.logger.warning(f"Failed to save checkpoint {ckpt_path}: {e}")
+
+        if not is_best:
+            return
+
+
+        # ✅ best 仅保存纯权重，避免不安全对象进入文件（例如调度器类）
+        best_path = self.save_dir / "best_model.pth"
+        safe_best = {"model": self.model.state_dict()}
         try:
-            torch.save(state, ckpt_path)
+            torch.save(safe_best, best_path)
             if hasattr(self, "logger"):
-                self.logger.info(f"Saved checkpoint to {ckpt_path}")
+                self.logger.info(f"[BestCKPT] Saved BEST weights to {best_path}")
         except Exception as e:
             if hasattr(self, "logger"):
-                self.logger.warning(f"Failed to save checkpoint {ckpt_path}: {e}")
-
-        if is_best:
-            # ✅ best 仅保存纯权重，避免不安全对象进入文件（例如调度器类）
-            best_path = self.save_dir / "best_model.pth"
-            safe_best = {"model": self.model.state_dict()}
-            try:
-                torch.save(safe_best, best_path)
-                if hasattr(self, "logger"):
-                    self.logger.info(f"[BestCKPT] Saved BEST weights to {best_path}")
-            except Exception as e:
-                if hasattr(self, "logger"):
-                    self.logger.warning(f"Failed to save BEST weights {best_path}: {e}")
+                self.logger.warning(f"Failed to save BEST weights {best_path}: {e}")
 
         # （可选降噪）如果这里有旧 ckpt 清理，把 INFO 改为 DEBUG 防刷屏：
         # self.logger.debug(f"Pruned old checkpoint: {p.name}")

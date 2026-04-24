@@ -1245,7 +1245,7 @@ def main():
     csv_path = str(run_pool_csv)
     
     # Setup experiment directories
-    experiment_name = f"AL_{args.sampling_strategy}_rounds{args.rounds}_budget{args.budget}"
+    experiment_name = f"{args.model_name}_{args.sampling_strategy}_round{args.rounds}_budget{args.budget}_seed{args.seed}"
     dirs = setup_experiment_dirs(args.output_dir, experiment_name)
 
     
