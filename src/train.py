@@ -641,6 +641,7 @@ def validate_visualize_sample(
         budget: int,
         device: torch.device,
         model_name: str,
+        seed: int,
         threshold: float | None = None   # 入参保留；函数内用 sweep 结果覆盖
     ):
     """
@@ -746,6 +747,7 @@ def validate_visualize_sample(
             device=device,
             unlabeled_indices=unlabeled_local,
             csv_path=pool_csv,
+            seed=seed,
         )
 
         # 根据 new_image_name 标记为已标注
@@ -855,7 +857,7 @@ def active_learning_loop(
         val_ds=val_ds0, full_train_ds=full_train_ds,
         dirs=dirs, train_cfg=train_config, data_cfg=data_config,
         pool_csv=pool_csv, sampling_strategy=sampling_strategy,
-        budget=budget, device=device, model_name=model_name)
+        budget=budget, device=device, model_name=model_name, seed=seed)
 
     # ─────────── iterate round0 … roundN ────────────
     for rnd in range(1, total_iters):  # 0-based
@@ -995,7 +997,7 @@ def active_learning_loop(
             val_ds=val_ds, full_train_ds=full_train_ds,
             dirs=dirs, train_cfg=train_config, data_cfg=data_config,
             pool_csv=pool_csv, sampling_strategy=sampling_strategy,
-            budget=budget, device=device, model_name=model_name)
+            budget=budget, device=device, model_name=model_name, seed=seed)
 
         # 让 full_train_ds 与最新 pool.csv 保持同步
         _pool_latest = pd.read_csv(pool_csv)[["new_image_name", "labeled"]]
